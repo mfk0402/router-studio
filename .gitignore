@@ -1,0 +1,32 @@
+node_modules
+out
+release
+dist
+.vite
+coverage
+*.log
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Secrets & local env (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+secrets.local.bin
+secrets.local.b64
+
+# IDE / OS
+.idea/
+*.swp
+*~
+
+# Scratch / local experiments (if you use this folder name)
+scratch/
+
+# Unrelated local scripts mistakenly placed in repo root (not part of Router Studio)
+sol-pnl.ts

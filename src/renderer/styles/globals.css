@@ -1,0 +1,340 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Router Studio — brand-aligned palettes (logo: indigo / violet / cyan / rose gradients).
+ * Light mode is the default first paint; dark mode uses slightly lifted surfaces + logo “plates”
+ * so full-color lockups stay legible.
+ */
+html.dark {
+  color-scheme: dark;
+  --color-bg-default: 22 24 34;
+  --color-bg-soft: 28 31 44;
+  --color-bg-elevated: 34 38 52;
+  --color-bg-hover: 44 50 68;
+  --color-bg-deep: 16 18 28;
+  --color-border-default: 55 62 82;
+  --color-border-soft: 40 45 60;
+  --color-fg-default: 238 241 247;
+  --color-fg-muted: 163 172 191;
+  --color-fg-subtle: 120 130 154;
+  --color-accent-default: 139 146 248;
+  --color-accent-muted: 99 102 241;
+  --color-success: 94 234 132;
+  --color-warn: 251 191 36;
+  --color-danger: 248 113 113;
+  --shadow-chrome: 0 1px 0 rgb(255 255 255 / 0.05) inset;
+  --shadow-float: 0 16px 48px rgb(0 0 0 / 0.5);
+  --shadow-card: 0 2px 14px rgb(0 0 0 / 0.22);
+  --shadow-card-hover: 0 8px 28px rgb(0 0 0 / 0.32);
+  --ring-subtle: rgb(255 255 255 / 0.08);
+  --scrollbar-thumb: 55 62 82;
+  --scrollbar-thumb-hover: 76 84 110;
+  --selection-bg: 139 146 248;
+  --selection-fg: 248 250 252;
+  --focus-ring: 165 180 252;
+  --markdown-fg: 238 241 247;
+  --markdown-muted: 163 172 191;
+  --markdown-link: 125 211 252;
+  --markdown-code-bg: 34 38 52;
+  --markdown-code-border: 55 62 82;
+  --markdown-pre-bg: 22 24 34;
+  --markdown-table-border: 55 62 82;
+  --markdown-blockquote-border: 55 62 82;
+  --modal-scrim: rgb(8 10 18 / 0.62);
+}
+
+html.light {
+  color-scheme: light;
+  --color-bg-default: 252 251 254;
+  --color-bg-soft: 244 243 250;
+  --color-bg-elevated: 255 255 255;
+  --color-bg-hover: 235 232 245;
+  --color-bg-deep: 237 234 246;
+  --color-border-default: 209 203 224;
+  --color-border-soft: 226 222 238;
+  --color-fg-default: 30 27 48;
+  --color-fg-muted: 91 85 120;
+  --color-fg-subtle: 113 106 140;
+  --color-accent-default: 99 102 241;
+  --color-accent-muted: 79 70 229;
+  --color-success: 22 163 74;
+  --color-warn: 217 119 6;
+  --color-danger: 220 38 38;
+  --shadow-chrome: 0 1px 0 rgb(255 255 255 / 0.85) inset;
+  --shadow-float: 0 14px 40px rgb(76 63 145 / 0.12);
+  --shadow-card: 0 2px 12px rgb(53 41 108 / 0.07);
+  --shadow-card-hover: 0 10px 32px rgb(53 41 108 / 0.11);
+  --ring-subtle: rgb(76 63 145 / 0.12);
+  --scrollbar-thumb: 198 191 220;
+  --scrollbar-thumb-hover: 164 154 195;
+  --selection-bg: 129 140 248;
+  --selection-fg: 255 255 255;
+  --focus-ring: 99 102 241;
+  --markdown-fg: 30 27 48;
+  --markdown-muted: 91 85 120;
+  --markdown-link: 8 145 178;
+  --markdown-code-bg: 244 243 250;
+  --markdown-code-border: 226 222 238;
+  --markdown-pre-bg: 252 251 254;
+  --markdown-table-border: 226 222 238;
+  --markdown-blockquote-border: 209 203 224;
+  --modal-scrim: rgb(30 27 48 / 0.38);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgb(var(--selection-bg) / 0.35);
+  color: rgb(var(--selection-fg));
+}
+
+/* --- Brand: wordmark gradient (replaces low-contrast PNG text on chrome) --- */
+.brand-wordmark {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  background: linear-gradient(
+    108deg,
+    rgb(30 64 175) 0%,
+    rgb(79 70 229) 24%,
+    rgb(109 40 217) 52%,
+    rgb(219 39 119) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+html.dark .brand-wordmark {
+  background: linear-gradient(
+    108deg,
+    rgb(224 231 255) 0%,
+    rgb(165 180 252) 28%,
+    rgb(196 181 253) 55%,
+    rgb(251 182 230) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/**
+ * Frosted “plate” behind full lockup assets so dark-blue strokes in PNG/SVG stay readable on dark UI.
+ */
+.brand-logo-plate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1.25rem;
+  padding: 1.1rem 1.6rem;
+}
+
+html.dark .brand-logo-plate {
+  background: linear-gradient(
+    152deg,
+    rgb(255 255 255 / 0.13) 0%,
+      rgb(255 255 255 / 0.04) 42%,
+      rgb(167 139 250 / 0.11) 100%
+    );
+  border: 1px solid rgb(255 255 255 / 0.13);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.07) inset,
+    0 22px 48px rgb(0 0 0 / 0.45),
+    0 0 80px rgb(99 102 241 / 0.14);
+}
+
+html.light .brand-logo-plate {
+  background: linear-gradient(180deg, rgb(255 255 255) 0%, rgb(252 251 254) 100%);
+  border: 1px solid rgb(var(--color-border-soft));
+  box-shadow: var(--shadow-card), 0 16px 40px rgb(99 102 241 / 0.07);
+}
+
+/** Small icon badge — menu bar, settings header, etc. */
+.brand-mark-icon-wrap {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  padding: 2px;
+}
+
+html.dark .brand-mark-icon-wrap {
+  background: linear-gradient(
+    145deg,
+    rgb(255 255 255 / 0.1) 0%,
+    rgb(255 255 255 / 0.02) 100%
+  );
+  border: 1px solid rgb(255 255 255 / 0.12);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.05) inset;
+}
+
+html.light .brand-mark-icon-wrap {
+  background: rgb(255 255 255);
+  border: 1px solid rgb(var(--color-border-soft));
+  box-shadow: 0 1px 2px rgb(53 41 108 / 0.06);
+}
+
+.welcome-hero {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--color-bg-soft) / 0.92) 0%,
+    rgb(var(--color-bg-default)) 38%,
+    rgb(var(--color-bg-default)) 100%
+  );
+}
+
+html.dark .welcome-hero {
+  background: radial-gradient(
+      ellipse 120% 80% at 50% -30%,
+      rgb(99 102 241 / 0.12),
+      transparent 55%
+    ),
+    linear-gradient(180deg, rgb(var(--color-bg-soft) / 0.85) 0%, rgb(var(--color-bg-default)) 45%);
+}
+
+.modal-scrim {
+  background: var(--modal-scrim);
+}
+
+/* App chrome: consistent keyboard focus (avoid targeting Monaco via broad selectors). */
+button:focus-visible,
+[role='button']:focus-visible,
+[href]:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid rgb(var(--focus-ring) / 0.55);
+  outline-offset: 2px;
+}
+
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+textarea:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.monaco-editor textarea:focus-visible {
+  outline: none !important;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--scrollbar-thumb));
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--scrollbar-thumb-hover));
+}
+
+/* Markdown prose tweaks for chat */
+.markdown-body {
+  color: rgb(var(--markdown-fg));
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.markdown-body p {
+  margin: 0 0 0.6em 0;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3 {
+  margin: 0.6em 0 0.3em;
+  font-weight: 600;
+}
+.markdown-body h1 {
+  font-size: 1.15rem;
+}
+.markdown-body h2 {
+  font-size: 1.05rem;
+}
+.markdown-body h3 {
+  font-size: 0.98rem;
+}
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.3em;
+  margin: 0.4em 0;
+}
+.markdown-body li {
+  margin: 0.15em 0;
+}
+.markdown-body a {
+  color: rgb(var(--markdown-link));
+  text-decoration: underline;
+}
+.markdown-body code {
+  background: rgb(var(--markdown-code-bg));
+  border: 1px solid rgb(var(--markdown-code-border));
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+.markdown-body pre {
+  background: rgb(var(--markdown-pre-bg));
+  border: 1px solid rgb(var(--markdown-code-border));
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow: auto;
+  margin: 0.6em 0;
+}
+.markdown-body pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: 12.5px;
+}
+.markdown-body blockquote {
+  border-left: 3px solid rgb(var(--markdown-blockquote-border));
+  padding-left: 0.8em;
+  color: rgb(var(--markdown-muted));
+  margin: 0.6em 0;
+}
+.markdown-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.4em 0;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid rgb(var(--markdown-table-border));
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+
+/* subtle animation utility */
+.fade-in {
+  animation: fadeIn 140ms ease-out;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
