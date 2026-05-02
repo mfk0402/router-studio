@@ -1,6 +1,9 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { RegisteredTool, ToolHandlerResult } from '../../../shared/types.js';
+import { getSettings } from '../../secureStore.js';
+import { assertWriteAllowed } from '../../writePolicy.js';
+import { pushWriteUndo } from '../../writeUndoStack.js';
 
 export const tool: RegisteredTool = {
   name: 'write_file',
@@ -42,6 +45,12 @@ export const tool: RegisteredTool = {
       return { success: false, error: 'Path must be within the project root.' };
     }
 
+    const settings = await getSettings();
+    const policy = assertWriteAllowed(settings, relativePath);
+    if (!policy.ok) {
+      return { success: false, error: policy.error };
+    }
+
     // Check for protected paths
     const protectedPatterns = [
       /^\.git(?:\/|$)/,
@@ -71,6 +80,8 @@ export const tool: RegisteredTool = {
       } catch {
         // File doesn't exist, that's fine
       }
+
+      pushWriteUndo(ctx.projectRoot, relativePath, existingContent);
 
       // Write the file
       await fs.writeFile(absPath, content, 'utf8');

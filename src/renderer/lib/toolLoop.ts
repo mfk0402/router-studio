@@ -14,7 +14,6 @@ import type {
   ToolDefinition,
   StreamChunk,
 } from '../../shared/types';
-import { useTools } from '../store/toolsStore';
 
 export interface ToolLoopOptions {
   apiKey: string;
@@ -34,6 +33,10 @@ export interface ToolLoopOptions {
   onMessagesUpdate: (messages: ChatMessage[]) => void;
   /** Signal to abort the loop */
   abortSignal?: AbortSignal;
+  /** Saved task id when running inside Agent Mode (for spawn_agent, etc.). */
+  activeTaskId?: string | null;
+  /** After tool results, use this model for deeper hops (smart routing). */
+  reasoningModel?: string;
 }
 
 export interface ToolLoopResult {
@@ -69,6 +72,8 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
     onLog,
     onMessagesUpdate,
     abortSignal,
+    activeTaskId,
+    reasoningModel,
   } = opts;
 
   // Build initial messages
@@ -94,10 +99,12 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
       };
     }
 
+    const modelThisRound = hops === 0 ? model : reasoningModel || model;
+
     // Call the model
     const result = await callModelWithTools({
       apiKey,
-      model,
+      model: modelThisRound,
       messages,
       temperature,
       maxTokens,
@@ -154,7 +161,9 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
       onLog(`Tool: ${tc.function.name}(${truncateArgs(args)})`);
 
       // Execute the tool
-      const toolResult = await window.api.tools.execute(tc.function.name, args);
+      const toolResult = await window.api.tools.execute(tc.function.name, args, {
+        taskId: activeTaskId ?? undefined,
+      });
 
       const resultStr = toolResult.success
         ? JSON.stringify(toolResult.result)
@@ -181,10 +190,11 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
 
     if (hops >= maxToolHops) {
       onLog(`Tool hop limit reached (${maxToolHops}). Forcing final response.`);
+      const modelFinal = reasoningModel || model;
       // One more call with tool_choice: none to get final response
       const final = await callModelWithTools({
         apiKey,
-        model,
+        model: modelFinal,
         messages,
         temperature,
         maxTokens,

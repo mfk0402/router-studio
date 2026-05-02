@@ -26,6 +26,7 @@ import { useTools } from '../store/toolsStore';
 import ToolCallCard from './ToolCallCard';
 import { SuggestedActions } from './SuggestedActions';
 import { ContextIndicator } from './ContextIndicator';
+import { toast } from './ToastContainer';
 import { SlashCommandMenu } from './SlashCommandMenu';
 import {
   executeCommand,
@@ -34,7 +35,13 @@ import {
   generateHelpText,
   type SlashCommand,
 } from '../lib/slashCommands';
-import type { AgentTask, AgentTaskStatus, Attachment, ToolCall } from '../../shared/types';
+import type {
+  AgentTask,
+  AgentTaskStatus,
+  Attachment,
+  ChatMessage as ChatMessagePayload,
+  ToolCall,
+} from '../../shared/types';
 import type { ChatMsg } from '../store/appStore';
 
 export default function AiPanel() {
@@ -82,6 +89,8 @@ export default function AiPanel() {
   const [ctxFullFile, setCtxFullFile] = useState<boolean>(settings.includeFullFile);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const speechRecRef = useRef<{ stop: () => void } | null>(null);
 
   // Agent task state — lightly cached so the banner updates without a roundtrip.
   const activeTaskId = useTasks((s) => s.activeTaskId);
@@ -91,6 +100,7 @@ export default function AiPanel() {
 
   // Ref-based cancel flag so auto-continue bails out even if React state is stale.
   const cancelAgentRef = useRef(false);
+  const toolLoopAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setCtxTree(settings.includeProjectTree);
@@ -149,6 +159,7 @@ export default function AiPanel() {
       const now = Date.now();
       const snapshot: AgentTask = {
         id: taskId,
+        parentTaskId: prev?.parentTaskId ?? null,
         title: prev?.title ?? deriveTaskTitle(opts.goal),
         goal: prev?.goal ?? opts.goal,
         status: opts.status,
@@ -264,8 +275,8 @@ export default function AiPanel() {
 
       const goalForTask = isAutoContinue ? (taskCache?.goal ?? userText) : userText;
 
-      try {
-        const result = await sendChatCompletion({
+      const runPlainCompletion = () =>
+        sendChatCompletion({
           apiKey: settings.apiKey,
           model: settings.defaultModel,
           messages: [
@@ -295,6 +306,116 @@ export default function AiPanel() {
           },
           onLog: (m) => pushLog('info', m),
         });
+
+      try {
+        let usedToolLoop = false;
+        const historyChat: ChatMessagePayload[] = history.map((m) => ({
+          role: m.role,
+          content: typeof m.content === 'string' ? m.content : messageContentToString(m.content),
+        }));
+
+        let result: { content: string; modelUsed: string };
+
+        if (settings.toolsEnabled) {
+          await loadToolDefinitions();
+          const defs = useTools.getState().toolDefinitions;
+          if (defs.length > 0) {
+            usedToolLoop = true;
+            if (freeModeEnabled) {
+              pushLog(
+                'info',
+                'Tool calling is active: this turn uses your primary model only (Free Mode router/cycle is skipped while tools run).',
+              );
+            }
+            const ac = new AbortController();
+            toolLoopAbortRef.current = ac;
+            try {
+              const loopResult = await runToolLoop({
+                apiKey: settings.apiKey,
+                model: settings.smartAgentRouting
+                  ? settings.agentReadModel || settings.defaultModel
+                  : settings.defaultModel,
+                reasoningModel: settings.smartAgentRouting
+                  ? settings.agentReasoningModel || settings.defaultModel
+                  : undefined,
+                systemPrompt,
+                history: historyChat,
+                userContent,
+                temperature: settings.temperature,
+                maxTokens: settings.maxTokens,
+                tools: defs,
+                maxToolHops: settings.maxToolHops,
+                activeTaskId: taskId ?? null,
+                abortSignal: ac.signal,
+                onStreamChunk: (chunk) => {
+                  if (chunk.type === 'delta' && chunk.content) {
+                    const cur = useApp.getState().chat.find((m) => m.id === assistId);
+                    updateChatMessage(assistId, {
+                      content: (cur?.content ?? '') + chunk.content,
+                    });
+                  }
+                },
+                onToolCallStart: () => {},
+                onToolCallEnd: () => {},
+                onLog: (m) => pushLog('info', m),
+                onMessagesUpdate: () => {},
+              });
+              if (loopResult.aborted) {
+                throw new Error('Stopped.');
+              }
+              let textOut = loopResult.content;
+              if (loopResult.toolCallCount > 0) {
+                textOut += `\n\n— _${loopResult.toolCallCount} tool call(s)._`;
+              }
+              result = { content: textOut, modelUsed: loopResult.modelUsed };
+            } finally {
+              toolLoopAbortRef.current = null;
+            }
+          } else {
+            result = await runPlainCompletion();
+          }
+        } else {
+          result = await runPlainCompletion();
+        }
+        if (settings.agentReflectionPass && usedToolLoop && result.content.trim()) {
+          try {
+            const reflect = await sendChatCompletion({
+              apiKey: settings.apiKey,
+              model: settings.defaultModel,
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    'You critique the assistant answer the user will paste. Be concise: up to 5 short bullets on risks, mistakes, or missing checks. If the answer looks fine, reply exactly: No major issues.',
+                },
+                {
+                  role: 'user',
+                  content:
+                    result.content.length > 120_000
+                      ? result.content.slice(0, 120_000) + '\n…[truncated]'
+                      : result.content,
+                },
+              ],
+              temperature: 0.2,
+              maxTokens: 600,
+              stream: false,
+              freeMode: {
+                enabled: false,
+                strategy: settings.freeModeStrategy,
+                freeModels: discoverFreeModels(models),
+              },
+              fallbackModel: settings.fallbackModel,
+              allowOfflineQueue: false,
+            });
+            result = {
+              ...result,
+              content: result.content + '\n\n**Reflection**\n' + reflect.content,
+              modelUsed: reflect.modelUsed,
+            };
+          } catch (e) {
+            pushLog('warn', `Reflection pass failed: ${(e as Error).message}`);
+          }
+        }
         updateChatMessage(assistId, {
           content: result.content,
           modelUsed: result.modelUsed,
@@ -400,6 +521,12 @@ export default function AiPanel() {
       settings.fallbackModel,
       settings.agentMode,
       settings.maxAgentIterations,
+      settings.smartAgentRouting,
+      settings.agentReadModel,
+      settings.agentReasoningModel,
+      settings.agentReflectionPass,
+      settings.toolsEnabled,
+      settings.maxToolHops,
       ctxCurrentFile,
       ctxFullFile,
       ctxSelection,
@@ -419,11 +546,14 @@ export default function AiPanel() {
       setActiveTaskId,
       persistTask,
       taskCache,
+      loadToolDefinitions,
     ],
   );
 
   const stopAgent = useCallback(() => {
     cancelAgentRef.current = true;
+    toolLoopAbortRef.current?.abort();
+    toolLoopAbortRef.current = null;
     if (activeTaskId) {
       void persistTask(activeTaskId, {
         goal: taskCache?.goal ?? '',
@@ -531,6 +661,52 @@ export default function AiPanel() {
     setShowSlashMenu(false);
     inputRef.current?.focus();
   };
+
+  const toggleVoiceInput = useCallback(() => {
+    if (!settings.voiceInputEnabled || busy) return;
+    if (voiceListening && speechRecRef.current) {
+      speechRecRef.current.stop();
+      speechRecRef.current = null;
+      setVoiceListening(false);
+      return;
+    }
+    const win = window as unknown as {
+      SpeechRecognition?: new () => SpeechRecognition;
+      webkitSpeechRecognition?: new () => SpeechRecognition;
+    };
+    const SR = win.SpeechRecognition ?? win.webkitSpeechRecognition;
+    if (!SR) {
+      toast.error('Speech recognition is not available in this browser.');
+      return;
+    }
+    const rec = new SR();
+    rec.lang = navigator.language || 'en-US';
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.onresult = (event: SpeechRecognitionEvent) => {
+      const text = event.results[0]?.[0]?.transcript ?? '';
+      if (text.trim()) {
+        setInput((prev) => (prev ? `${prev} ${text.trim()}` : text.trim()));
+      }
+    };
+    rec.onerror = () => {
+      setVoiceListening(false);
+      speechRecRef.current = null;
+      toast.error('Voice input error');
+    };
+    rec.onend = () => {
+      setVoiceListening(false);
+      speechRecRef.current = null;
+    };
+    speechRecRef.current = rec;
+    try {
+      rec.start();
+      setVoiceListening(true);
+    } catch (e) {
+      speechRecRef.current = null;
+      toast.error(`Voice start failed: ${(e as Error).message}`);
+    }
+  }, [settings.voiceInputEnabled, busy, voiceListening]);
 
   // --- drag-drop support: images + text files dropped onto the panel ---
   const [dropActive, setDropActive] = useState(false);
@@ -800,6 +976,32 @@ export default function AiPanel() {
 
       <AttachmentBar />
 
+      {settings.taskTemplates && settings.taskTemplates.length > 0 ? (
+        <div className="border-t border-border-soft bg-bg-elevated px-2 pb-1 pt-1">
+          <label htmlFor="task-template-select" className="sr-only">
+            Insert saved task template into prompt
+          </label>
+          <select
+            id="task-template-select"
+            className="w-full rounded-md border border-border bg-bg px-2 py-1 text-[11px] text-fg"
+            defaultValue=""
+            onChange={(e) => {
+              const id = e.target.value;
+              const t = settings.taskTemplates.find((x) => x.id === id);
+              if (t) setInput((prev) => (prev ? `${prev}\n${t.prompt}` : t.prompt));
+              e.target.value = '';
+            }}
+          >
+            <option value="">Insert task template…</option>
+            {settings.taskTemplates.map((tm) => (
+              <option key={tm.id} value={tm.id}>
+                {tm.title}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
       <div className="relative border-t border-border-soft bg-bg-elevated p-2">
         <SlashCommandMenu
           input={input}
@@ -824,6 +1026,7 @@ export default function AiPanel() {
           }
           rows={3}
           disabled={busy}
+          aria-label="AI chat message input"
           className="w-full resize-none rounded-md border border-border bg-bg px-2 py-2 text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none disabled:opacity-60"
         />
         <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-subtle">
@@ -837,8 +1040,27 @@ export default function AiPanel() {
           </div>
           <div className="flex items-center gap-2">
             <span className="truncate">{busy ? 'Sending…' : displayedModel}</span>
+            {settings.voiceInputEnabled ? (
+              <button
+                type="button"
+                disabled={busy}
+                aria-pressed={voiceListening}
+                aria-label={voiceListening ? 'Stop voice input' : 'Start voice input'}
+                onClick={() => toggleVoiceInput()}
+                className={
+                  'rounded-md border px-2 py-1 text-xs ' +
+                  (voiceListening
+                    ? 'border-accent text-accent'
+                    : 'border-border text-fg-muted hover:bg-bg-hover')
+                }
+              >
+                {voiceListening ? 'Stop mic' : 'Mic'}
+              </button>
+            ) : null}
             <button
+              type="button"
               disabled={busy || (!input.trim() && attachments.length === 0)}
+              aria-label="Send message to AI"
               onClick={() => {
                 const v = input;
                 setInput('');

@@ -4,7 +4,7 @@
  * Stores:
  * - Open tabs (paths, content if dirty, cursor positions)
  * - Active tab
- * - Project root
+ * - Project root + recent project folder paths (MRU)
  * - Sidebar/panel visibility
  * - Chat history (last N messages)
  */
@@ -31,6 +31,8 @@ export interface TabState {
 export interface SessionState {
   version: number;
   projectRoot: string | null;
+  /** Absolute paths, most recently used first (max ~15 in renderer). */
+  recentProjectRoots: string[];
   tabs: TabState[];
   activeTabPath: string | null;
   sidebarCollapsed: boolean;
@@ -47,6 +49,7 @@ export interface SessionState {
 const DEFAULT_SESSION: SessionState = {
   version: 1,
   projectRoot: null,
+  recentProjectRoots: [],
   tabs: [],
   activeTabPath: null,
   sidebarCollapsed: false,
@@ -75,7 +78,11 @@ export async function loadSession(): Promise<SessionState> {
       return DEFAULT_SESSION;
     }
 
-    return data;
+    const recentProjectRoots = Array.isArray(data.recentProjectRoots)
+      ? data.recentProjectRoots.filter((x): x is string => typeof x === 'string')
+      : [];
+
+    return { ...data, recentProjectRoots };
   } catch (e) {
     // No session file or invalid JSON
     return DEFAULT_SESSION;

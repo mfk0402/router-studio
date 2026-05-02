@@ -8,6 +8,8 @@ interface Command {
   label: string;
   category: 'file' | 'edit' | 'view' | 'tools' | 'git' | 'ai' | 'settings' | 'help';
   shortcut?: string;
+  /** Extra tokens for palette search (not shown in the row). */
+  keywords?: string[];
   action: () => void;
 }
 
@@ -20,6 +22,7 @@ export default function CommandPalette() {
   const setShowTasks = useApp((s) => s.setShowTasks);
   const setShowRoadmap = useApp((s) => s.setShowRoadmap);
   const setShowUsageStats = useApp((s) => s.setShowUsageStats);
+  const setShowBenchmark = useApp((s) => s.setShowBenchmark);
   const clearChat = useApp((s) => s.clearChat);
   const fileTree = useApp((s) => s.fileTree);
   const tabs = useApp((s) => s.tabs);
@@ -46,7 +49,7 @@ export default function CommandPalette() {
         category: 'file',
         shortcut: 'Ctrl+O',
         action: () => {
-          window.api.fs.openFolder();
+          void useApp.getState().pickAndOpenProjectFolder();
           setShowCommandPalette(false);
         },
       },
@@ -135,6 +138,7 @@ export default function CommandPalette() {
         id: 'help:roadmap',
         label: 'Open Product Roadmap',
         category: 'help',
+        keywords: ['roadmap', 'backlog', 'features', 'shipped', 'planned'],
         action: () => {
           setShowRoadmap(true);
           setShowCommandPalette(false);
@@ -144,8 +148,19 @@ export default function CommandPalette() {
         id: 'help:stats',
         label: 'Open Local Usage Statistics',
         category: 'help',
+        keywords: ['statistics', 'telemetry', 'usage', 'metrics'],
         action: () => {
           setShowUsageStats(true);
+          setShowCommandPalette(false);
+        },
+      },
+      {
+        id: 'help:benchmark',
+        label: 'Open Model Benchmark',
+        category: 'help',
+        keywords: ['benchmark', 'latency', 'evaluator', 'speed', 'perf'],
+        action: () => {
+          setShowBenchmark(true);
           setShowCommandPalette(false);
         },
       },
@@ -153,6 +168,7 @@ export default function CommandPalette() {
         id: 'help:updates',
         label: 'Check for Updates',
         category: 'help',
+        keywords: ['updater', 'update', 'upgrade', 'version'],
         action: async () => {
           setShowCommandPalette(false);
           const res = await window.api.updates.check();
@@ -229,6 +245,8 @@ export default function CommandPalette() {
     setShowRules,
     setShowTasks,
     setShowRoadmap,
+    setShowUsageStats,
+    setShowBenchmark,
     clearChat,
     setFreeMode,
     setActiveTab,
@@ -244,7 +262,8 @@ export default function CommandPalette() {
       .filter((cmd) => {
         const label = cmd.label.toLowerCase();
         const category = cmd.category.toLowerCase();
-        return label.includes(q) || category.includes(q);
+        const keywords = (cmd.keywords ?? []).join(' ').toLowerCase();
+        return label.includes(q) || category.includes(q) || keywords.includes(q);
       })
       .sort((a, b) => {
         // Exact match at start ranks higher

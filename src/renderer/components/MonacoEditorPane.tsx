@@ -9,8 +9,14 @@ import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 import { useApp } from '../store/appStore';
 import { useSettings } from '../store/settingsStore';
 import { useResolvedTheme } from '../hooks/useResolvedTheme';
+import { registerGhostInlineCompletions } from '../lib/ghostInlineCompletion';
+import { registerUserSnippetCompletions } from '../lib/userSnippetsMonaco';
 import InlineEditWidget from './InlineEditWidget';
+
+let editorHoverDisposable: monaco.IDisposable | null = null;
 import CodeActionsMenu from './CodeActionsMenu';
+import ContextMenu from './ContextMenu';
+import type { ContextMenuItem } from './ContextMenu';
 
 // Ensure Monaco uses bundled workers (fully local, no CDN required).
 self.MonacoEnvironment = {
@@ -62,6 +68,12 @@ export default function MonacoEditorPane() {
     lineContent: string;
     lineNumber: number;
     selection: monaco.Selection | null;
+  } | null>(null);
+
+  const [editorContextMenu, setEditorContextMenu] = useState<{
+    x: number;
+    y: number;
+    items: ContextMenuItem[];
   } | null>(null);
 
   // Open inline edit widget
@@ -165,6 +177,113 @@ export default function MonacoEditorPane() {
     editorRef.current?.focus();
   }, []);
 
+  /** Right-click menu: built here so we can fire from DOM capture (Monaco default menu is disabled). */
+  const openEditorContextMenu = useCallback(
+    (clientX: number, clientY: number) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+
+      const model = editor.getModel();
+      const sel = editor.getSelection();
+      const hasSel = !!(model && sel && !sel.isEmpty());
+      const pathLabel = useApp.getState().activeTabPath ?? '';
+
+      const runAction = (id: string) => {
+        void editor.getAction(id)?.run();
+      };
+
+      const items: ContextMenuItem[] = [
+        {
+          label: 'Undo',
+          shortcut: 'Ctrl/Cmd+Z',
+          action: () => runAction('editor.action.undo'),
+        },
+        {
+          label: 'Redo',
+          shortcut: 'Ctrl/Cmd+Shift+Z',
+          action: () => runAction('editor.action.redo'),
+        },
+        { divider: true, label: '' },
+        {
+          label: 'Cut',
+          shortcut: 'Ctrl/Cmd+X',
+          disabled: !hasSel,
+          action: () => runAction('editor.action.clipboardCutAction'),
+        },
+        {
+          label: 'Copy',
+          shortcut: 'Ctrl/Cmd+C',
+          disabled: !hasSel,
+          action: () => runAction('editor.action.clipboardCopyAction'),
+        },
+        {
+          label: 'Paste',
+          shortcut: 'Ctrl/Cmd+V',
+          action: () => runAction('editor.action.clipboardPasteAction'),
+        },
+        {
+          label: 'Select All',
+          shortcut: 'Ctrl/Cmd+A',
+          action: () => runAction('editor.action.selectAll'),
+        },
+        { divider: true, label: '' },
+        {
+          label: 'Format Document',
+          shortcut: 'Shift+Alt+F',
+          action: () => void runAction('editor.action.formatDocument'),
+        },
+        {
+          label: 'Go to Line…',
+          shortcut: 'Ctrl/Cmd+G',
+          action: () => void runAction('editor.action.gotoLine'),
+        },
+        {
+          label: 'Command Palette…',
+          shortcut: 'Ctrl/Cmd+Shift+P',
+          action: () => useApp.getState().setShowCommandPalette(true),
+        },
+        {
+          label: 'Quick Open…',
+          shortcut: 'Ctrl/Cmd+P',
+          action: () => useApp.getState().setShowQuickOpen(true),
+        },
+        { divider: true, label: '' },
+        {
+          label: 'Inline edit with AI (Ctrl+K)',
+          icon: '✨',
+          disabled: !hasSel,
+          action: () => openInlineEdit(),
+        },
+        {
+          label: 'Quick fixes & AI actions (Ctrl+.)',
+          icon: '⚡',
+          action: () => openCodeActionsMenu(),
+        },
+        {
+          label: 'Ask AI about selection',
+          icon: '💬',
+          disabled: !hasSel,
+          action: () => {
+            if (!model || !sel || sel.isEmpty()) return;
+            const text = model.getValueInRange(sel).trim();
+            if (!text) return;
+            const rel = useApp.getState().activeTabPath ?? pathLabel;
+            useApp.getState().addChatMessage({
+              id: crypto.randomUUID(),
+              role: 'user',
+              content: `In \`${rel}\` I have this selected:\n\n\`\`\`\n${text.slice(0, 12000)}${text.length > 12000 ? '\n…' : ''}\n\`\`\`\n\n`,
+              createdAt: Date.now(),
+            });
+            useApp.getState().setAiPanelFocused(true);
+          },
+        },
+      ];
+
+      setEditorContextMenu({ x: clientX, y: clientY, items });
+    },
+    [openInlineEdit, openCodeActionsMenu],
+  );
+
   // Apply code action edit
   const applyCodeActionEdit = useCallback((newText: string) => {
     const editor = editorRef.current;
@@ -216,6 +335,43 @@ export default function MonacoEditorPane() {
   const handleMount: OnMount = (editor, monacoInstance) => {
     editorRef.current = editor;
     setEditorInstance(editor);
+
+    registerGhostInlineCompletions(monacoInstance);
+    registerUserSnippetCompletions(monacoInstance);
+
+    if (!editorHoverDisposable) {
+      const hoverSel: monaco.languages.LanguageSelector = [
+        'typescript',
+        'javascript',
+        'javascriptreact',
+        'typescriptreact',
+        'python',
+        'rust',
+        'go',
+        'json',
+        'html',
+        'css',
+        'markdown',
+      ];
+      editorHoverDisposable = monacoInstance.languages.registerHoverProvider(hoverSel, {
+        provideHover(model, pos) {
+          const w = model.getWordAtPosition(pos);
+          if (!w) {
+            return { contents: [{ value: `_Line ${pos.lineNumber}_` }] };
+          }
+          return {
+            contents: [
+              {
+                value:
+                  `**${w.word}** · \`${model.getLanguageId()}\`\n\n` +
+                  'Router Studio rich hover: word under cursor and language id. ' +
+                  'Extend with LSP or project docs in later releases.',
+              },
+            ],
+          };
+        },
+      });
+    }
 
     editor.onDidChangeCursorSelection(() => {
       const model = editor.getModel();
@@ -286,11 +442,25 @@ export default function MonacoEditorPane() {
     };
   }, [setEditorInstance]);
 
+  useEffect(() => {
+    editorRef.current?.updateOptions({
+      inlineSuggest: { enabled: editorSettings?.ghostTextEnabled ?? false },
+    });
+  }, [editorSettings?.ghostTextEnabled]);
+
   if (!tab) return null;
 
   return (
-    <div className="relative h-full w-full">
+    <div
+      className="relative h-full w-full"
+      onContextMenuCapture={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openEditorContextMenu(e.clientX, e.clientY);
+      }}
+    >
       <Editor
+        path={tab.relativePath}
         height="100%"
         theme={uiTheme === "light" ? "vs-light" : "vs-dark"}
         language={tab.language}
@@ -379,6 +549,10 @@ export default function MonacoEditorPane() {
           snippetSuggestions: 'inline',
           tabCompletion: 'on',
 
+          inlineSuggest: {
+            enabled: editorSettings?.ghostTextEnabled ?? false,
+          },
+
           // Hover
           hover: {
             enabled: true,
@@ -410,6 +584,8 @@ export default function MonacoEditorPane() {
 
           // Fixed widgets
           fixedOverflowWidgets: true,
+          // App-owned context menu (wrapper onContextMenuCapture; native menu disabled)
+          contextmenu: false,
         }}
       />
 
@@ -434,6 +610,15 @@ export default function MonacoEditorPane() {
           lineNumber={codeActionsMenu.lineNumber}
           onClose={closeCodeActionsMenu}
           onApplyEdit={applyCodeActionEdit}
+        />
+      )}
+
+      {editorContextMenu && (
+        <ContextMenu
+          x={editorContextMenu.x}
+          y={editorContextMenu.y}
+          items={editorContextMenu.items}
+          onClose={() => setEditorContextMenu(null)}
         />
       )}
     </div>

@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import type { RegisteredTool, ToolHandlerResult } from '../../../shared/types.js';
+import { getSettings } from '../../secureStore.js';
+import { shellStaticHints } from '../../shellStatic.js';
 
 // Dangerous command patterns that are always blocked
 const DANGEROUS_PATTERNS = [
@@ -84,7 +86,23 @@ export const tool: RegisteredTool = {
       }
     }
 
-    // Security: ensure cwd doesn't escape project root
+    const settings = await getSettings();
+    for (const raw of settings.shellDenylist ?? []) {
+      const pat = String(raw ?? '').trim();
+      if (!pat) continue;
+      try {
+        if (new RegExp(pat).test(command)) {
+          return {
+            success: false,
+            error: `Command blocked by shell deny list (Settings): regexp /${pat}/ matched.`,
+          };
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    const staticHints = shellStaticHints(command);
     const cwd = path.resolve(ctx.projectRoot, cwdRel);
     if (!cwd.startsWith(ctx.projectRoot)) {
       return { success: false, error: 'Working directory must be within the project root.' };
@@ -112,6 +130,7 @@ export const tool: RegisteredTool = {
           stderr: truncate(result.stderr, 10000),
           timedOut: result.timedOut,
           durationMs: result.durationMs,
+          shell_hints: staticHints.length > 0 ? staticHints : undefined,
         },
         error: result.exitCode !== 0 ? `Command exited with code ${result.exitCode}` : undefined,
         preview: `$ ${command}${riskWarning}`,

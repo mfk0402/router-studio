@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ITheme } from '@xterm/xterm';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -6,6 +6,8 @@ import '@xterm/xterm/css/xterm.css';
 import { useApp } from '../store/appStore';
 import { useSettings } from '../store/settingsStore';
 import { useResolvedTheme } from '../hooks/useResolvedTheme';
+import ContextMenu from './ContextMenu';
+import type { ContextMenuItem } from './ContextMenu';
 
 const XTERM_DARK: ITheme = {
   background: '#0b0d12',
@@ -78,6 +80,12 @@ export default function TerminalPane({ active }: { active: boolean }) {
   const terminalSessionId = useApp((s) => s.terminalSessionId);
   const pendingCmd = useApp((s) => s.pendingTerminalCommand);
   const clearPending = useApp((s) => s.clearPendingTerminalCommand);
+
+  const [terminalMenu, setTerminalMenu] = useState<{
+    x: number;
+    y: number;
+    items: ContextMenuItem[];
+  } | null>(null);
 
   // Init xterm once the container is mounted.
   useEffect(() => {
@@ -205,11 +213,80 @@ export default function TerminalPane({ active }: { active: boolean }) {
     clearPending();
   }, [pendingCmd, terminalSessionId, clearPending, pushLog]);
 
+  const onWrapperContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const term = termRef.current;
+    const selection = term?.getSelection() ?? '';
+    const hasSel = selection.length > 0;
+
+    const items: ContextMenuItem[] = [
+      {
+        label: 'Copy',
+        shortcut: 'Ctrl/Cmd+Shift+C',
+        disabled: !hasSel,
+        action: async () => {
+          if (!selection) return;
+          try {
+            await navigator.clipboard.writeText(selection);
+          } catch {
+            pushLog('error', 'Copy failed (clipboard permission).');
+          }
+        },
+      },
+      {
+        label: 'Paste',
+        shortcut: 'Ctrl/Cmd+Shift+V',
+        action: async () => {
+          try {
+            const text = await navigator.clipboard.readText();
+            if (text && termRef.current) termRef.current.paste(text);
+          } catch {
+            pushLog('error', 'Paste failed (clipboard permission).');
+          }
+        },
+      },
+      { divider: true, label: '' },
+      {
+        label: 'Select all',
+        action: () => {
+          try {
+            term?.selectAll();
+          } catch {
+            /* xterm version without selectAll */
+          }
+        },
+      },
+      {
+        label: 'Clear',
+        danger: true,
+        action: () => term?.clear(),
+      },
+      { divider: true, label: '' },
+      {
+        label: 'Focus terminal',
+        action: () => term?.focus(),
+      },
+    ];
+
+    setTerminalMenu({ x: e.clientX, y: e.clientY, items });
+  }, [pushLog]);
+
   return (
     <div
-      ref={containerRef}
-      className="h-full w-full bg-bg"
+      className="relative h-full w-full bg-bg"
       style={{ minHeight: 0 }}
-    />
+      onContextMenuCapture={onWrapperContextMenu}
+    >
+      <div ref={containerRef} className="h-full w-full" style={{ minHeight: 0 }} />
+      {terminalMenu && (
+        <ContextMenu
+          x={terminalMenu.x}
+          y={terminalMenu.y}
+          items={terminalMenu.items}
+          onClose={() => setTerminalMenu(null)}
+        />
+      )}
+    </div>
   );
 }

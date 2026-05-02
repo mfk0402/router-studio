@@ -29,6 +29,12 @@ export default function SettingsModal() {
 
   const [auditPreview, setAuditPreview] = useState<string[]>([]);
   const [offlineQueued, setOfflineQueued] = useState(0);
+  const [githubDraft, setGithubDraft] = useState('');
+  const [linearDraft, setLinearDraft] = useState('');
+  const [snippetsJsonDraft, setSnippetsJsonDraft] = useState('[]');
+  const [mcpJsonDraft, setMcpJsonDraft] = useState('[]');
+  const [templatesJsonDraft, setTemplatesJsonDraft] = useState('[]');
+  const [scheduledJsonDraft, setScheduledJsonDraft] = useState('[]');
 
   const freeModels = useMemo(() => models.filter((m) => m.isFree), [models]);
 
@@ -39,8 +45,25 @@ export default function SettingsModal() {
       setMaxTokensDraft(String(settings.maxTokens));
       setTemperatureDraft(String(settings.temperature));
       setOfflineQueued(offlineQueueLength());
+      setGithubDraft(settings.githubToken ?? '');
+      setLinearDraft(settings.linearApiKey ?? '');
+      setSnippetsJsonDraft(JSON.stringify(settings.userSnippets ?? [], null, 2));
+      setMcpJsonDraft(JSON.stringify(settings.mcpServers ?? [], null, 2));
+      setTemplatesJsonDraft(JSON.stringify(settings.taskTemplates ?? [], null, 2));
+      setScheduledJsonDraft(JSON.stringify(settings.scheduledTasks ?? [], null, 2));
     }
-  }, [open, settings.apiKey, settings.maxTokens, settings.temperature]);
+  }, [
+    open,
+    settings.apiKey,
+    settings.maxTokens,
+    settings.temperature,
+    settings.githubToken,
+    settings.linearApiKey,
+    settings.userSnippets,
+    settings.mcpServers,
+    settings.taskTemplates,
+    settings.scheduledTasks,
+  ]);
 
   const commitMaxTokens = () => {
     const n = Number(maxTokensDraft);
@@ -324,6 +347,65 @@ export default function SettingsModal() {
 
           <section className="rounded-md border border-border-soft bg-bg-soft p-3">
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+              Editor — AI ghost text
+            </div>
+            <label className="mb-2 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={settings.editor.ghostTextEnabled}
+                onChange={(e) =>
+                  void update({
+                    editor: { ...settings.editor, ghostTextEnabled: e.target.checked },
+                  })
+                }
+              />
+              Inline ghost completions (OpenRouter; uses default model + API key)
+            </label>
+            <p className="mb-2 text-[10px] text-fg-subtle">
+              Debounced, rate-limited FIM-style suggestions at the cursor. Expect small API usage while typing.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="mb-0.5 block text-[10px] text-fg-muted">Debounce (ms)</label>
+                <input
+                  type="number"
+                  min={100}
+                  max={5000}
+                  value={settings.editor.ghostTextDebounceMs}
+                  onChange={(e) =>
+                    void update({
+                      editor: {
+                        ...settings.editor,
+                        ghostTextDebounceMs: Math.max(100, Number(e.target.value) || 450),
+                      },
+                    })
+                  }
+                  className="w-full rounded border border-border bg-bg px-2 py-1 text-xs"
+                />
+              </div>
+              <div>
+                <label className="mb-0.5 block text-[10px] text-fg-muted">Cooldown (ms)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={10000}
+                  value={settings.editor.ghostTextCooldownMs}
+                  onChange={(e) =>
+                    void update({
+                      editor: {
+                        ...settings.editor,
+                        ghostTextCooldownMs: Math.max(0, Number(e.target.value) || 1200),
+                      },
+                    })
+                  }
+                  className="w-full rounded border border-border bg-bg px-2 py-1 text-xs"
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-md border border-border-soft bg-bg-soft p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
               Agent Mode
             </div>
             <label className="mb-2 flex items-center gap-2 text-sm">
@@ -360,6 +442,52 @@ export default function SettingsModal() {
               The task pauses at this limit so a runaway model can't burn through your credits.
             </p>
             <div className="mt-3 border-t border-border-soft pt-3">
+              <div className="mb-2 text-[11px] font-semibold text-fg-muted">Smart tool routing</div>
+              <label className="mb-2 flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings.smartAgentRouting}
+                  onChange={(e) => void update({ smartAgentRouting: e.target.checked })}
+                />
+                Use a cheaper model for the first tool-planning hop, then a stronger model after tools
+              </label>
+              <p className="mb-2 text-[10px] text-fg-subtle">
+                Applies only when tool calling runs in chat. First hop uses the read model; later hops
+                (after tool results) use the reasoning model. Leave fields blank to use your default model.
+              </p>
+              <label className="mb-1 block text-xs font-medium text-fg-muted">
+                Read / planning model (first hop)
+              </label>
+              <input
+                type="text"
+                value={settings.agentReadModel}
+                placeholder={settings.defaultModel || 'e.g. openrouter/auto'}
+                onChange={(e) => void update({ agentReadModel: e.target.value })}
+                className="mb-2 w-full rounded-md border border-border bg-bg px-2 py-1 font-mono text-xs focus:border-accent focus:outline-none"
+              />
+              <label className="mb-1 block text-xs font-medium text-fg-muted">
+                Reasoning model (after tools)
+              </label>
+              <input
+                type="text"
+                value={settings.agentReasoningModel}
+                placeholder={settings.defaultModel || 'e.g. anthropic/claude-3.5-sonnet'}
+                onChange={(e) => void update({ agentReasoningModel: e.target.value })}
+                className="w-full rounded-md border border-border bg-bg px-2 py-1 font-mono text-xs focus:border-accent focus:outline-none"
+              />
+              <label className="mt-3 flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings.agentReflectionPass}
+                  onChange={(e) => void update({ agentReflectionPass: e.target.checked })}
+                />
+                Reflection pass after tool-using replies (extra API call)
+              </label>
+              <p className="mt-1 text-[10px] text-fg-subtle">
+                Runs a short self-critique on the final assistant text when tools were used this turn.
+              </p>
+            </div>
+            <div className="mt-3 border-t border-border-soft pt-3">
               <div className="mb-2 text-[11px] font-semibold text-fg-muted">Agent safety</div>
               <label className="mb-2 flex items-center gap-2 text-sm">
                 <input
@@ -388,6 +516,60 @@ export default function SettingsModal() {
               <p className="mt-1 text-[10px] text-fg-subtle">
                 Mutating calls return JSON with <code className="text-[10px]">dry_run: true</code> and do not touch disk or run commands. Combine with sandbox for exploration without surprises.
               </p>
+              <div className="mt-3 space-y-2 border-t border-border-soft pt-3">
+                <div className="text-[11px] font-semibold text-fg-muted">Shell deny list (regex)</div>
+                <p className="text-[10px] text-fg-subtle">
+                  One JavaScript regexp per line. If any pattern matches the full command string,{' '}
+                  <code className="text-[10px]">run_shell</code> is blocked.
+                </p>
+                <textarea
+                  value={(settings.shellDenylist ?? []).join('\n')}
+                  onChange={(e) =>
+                    void update({
+                      shellDenylist: e.target.value
+                        .split('\n')
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  rows={4}
+                  className="w-full rounded-md border border-border bg-bg px-2 py-1 font-mono text-[11px] focus:border-accent focus:outline-none"
+                  placeholder="curl\\s.*\\|\\s*bash"
+                />
+              </div>
+              <div className="mt-3 space-y-2 border-t border-border-soft pt-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={settings.agentWriteDenyDefault}
+                    onChange={(e) => void update({ agentWriteDenyDefault: e.target.checked })}
+                  />
+                  Deny-by-default for agent writes (only allow paths below)
+                </label>
+                <p className="text-[10px] text-fg-subtle">
+                  When enabled, <code className="text-[10px]">write_file</code>,{' '}
+                  <code className="text-[10px]">edit_file</code>, <code className="text-[10px]">create_file</code>, and{' '}
+                  <code className="text-[10px]">delete_file</code> must match at least one entry in the existing{' '}
+                  <strong>write allow paths</strong> list (Settings → same as shell allow patterns area). Leave deny-by-default off until you configure allow globs.
+                </p>
+                <div className="text-[11px] font-semibold text-fg-muted">Write deny globs</div>
+                <p className="text-[10px] text-fg-subtle">
+                  One path glob per line (e.g. <code className="text-[10px]">.env*</code>, <code className="text-[10px]">**/secrets/**</code>). Always blocked before allow rules.
+                </p>
+                <textarea
+                  value={(settings.writeDenyPaths ?? []).join('\n')}
+                  onChange={(e) =>
+                    void update({
+                      writeDenyPaths: e.target.value
+                        .split('\n')
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  rows={3}
+                  className="w-full rounded-md border border-border bg-bg px-2 py-1 font-mono text-[11px] focus:border-accent focus:outline-none"
+                />
+              </div>
             </div>
           </section>
 
@@ -492,6 +674,179 @@ export default function SettingsModal() {
                 </button>
               </div>
             </div>
+          </section>
+
+          <section className="rounded-md border border-border-soft bg-bg-soft p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+              Webhook (local)
+            </div>
+            <label className="mb-2 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={settings.webhookListenerEnabled}
+                onChange={(e) =>
+                  void update({ webhookListenerEnabled: e.target.checked })
+                }
+              />
+              Listen on localhost for POST /hook
+            </label>
+            <label className="mb-1 block text-[10px] text-fg-muted">Port</label>
+            <input
+              type="number"
+              min={1024}
+              max={65535}
+              value={settings.webhookPort}
+              onChange={(e) => {
+                const n = Math.min(65535, Math.max(1024, Math.floor(Number(e.target.value) || 17373)));
+                void update({ webhookPort: n });
+              }}
+              className="mb-2 w-28 rounded border border-border bg-bg px-2 py-1 text-xs"
+            />
+            <p className="text-[10px] text-fg-subtle">
+              When enabled: <code className="text-[10px]">curl -X POST http://127.0.0.1:{settings.webhookPort}/hook -d &apos;hi&apos;</code> — body shows as a toast (max 50k).
+            </p>
+          </section>
+
+          <section className="rounded-md border border-border-soft bg-bg-soft p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+              Integrations (tokens)
+            </div>
+            <label className="mb-1 block text-[10px] text-fg-muted">GitHub PAT (repo scope for issues)</label>
+            <input
+              type="password"
+              value={githubDraft}
+              onChange={(e) => setGithubDraft(e.target.value)}
+              onBlur={() => {
+                if (githubDraft !== (settings.githubToken ?? '')) {
+                  void update({ githubToken: githubDraft });
+                }
+              }}
+              className="mb-2 w-full rounded border border-border bg-bg px-2 py-1 font-mono text-xs"
+              placeholder="ghp_…"
+            />
+            <label className="mb-1 block text-[10px] text-fg-muted">Linear API key</label>
+            <input
+              type="password"
+              value={linearDraft}
+              onChange={(e) => setLinearDraft(e.target.value)}
+              onBlur={() => {
+                if (linearDraft !== (settings.linearApiKey ?? '')) {
+                  void update({ linearApiKey: linearDraft });
+                }
+              }}
+              className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-xs"
+              placeholder="lin_api_…"
+            />
+            <p className="mt-2 text-[10px] text-fg-subtle">
+              Stored in plain settings.json — use a machine profile or keep workspaces private.
+            </p>
+          </section>
+
+          <section className="rounded-md border border-border-soft bg-bg-soft p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+              AI panel — voice & templates
+            </div>
+            <label className="mb-2 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={settings.voiceInputEnabled}
+                onChange={(e) => void update({ voiceInputEnabled: e.target.checked })}
+              />
+              Show microphone (Web Speech API) next to the chat input
+            </label>
+            <p className="text-[10px] text-fg-subtle">
+              Browser speech recognition sends audio to the vendor (e.g. Google) unless disabled at OS level.
+            </p>
+          </section>
+
+          <section className="rounded-md border border-border-soft bg-bg-soft p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+              Editor — user snippets (JSON)
+            </div>
+            <textarea
+              value={snippetsJsonDraft}
+              onChange={(e) => setSnippetsJsonDraft(e.target.value)}
+              onBlur={() => {
+                try {
+                  const v = JSON.parse(snippetsJsonDraft) as unknown;
+                  if (!Array.isArray(v)) throw new Error('Expected array');
+                  void update({ userSnippets: v as typeof settings.userSnippets });
+                } catch (e) {
+                  pushLog('warn', `Snippets JSON invalid: ${(e as Error).message}`);
+                }
+              }}
+              rows={6}
+              className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[11px]"
+            />
+          </section>
+
+          <section className="rounded-md border border-border-soft bg-bg-soft p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+              MCP registry (JSON)
+            </div>
+            <textarea
+              value={mcpJsonDraft}
+              onChange={(e) => setMcpJsonDraft(e.target.value)}
+              onBlur={() => {
+                try {
+                  const v = JSON.parse(mcpJsonDraft) as unknown;
+                  if (!Array.isArray(v)) throw new Error('Expected array');
+                  void update({ mcpServers: v as typeof settings.mcpServers });
+                } catch (e) {
+                  pushLog('warn', `MCP JSON invalid: ${(e as Error).message}`);
+                }
+              }}
+              rows={5}
+              className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[11px]"
+              placeholder='[{"id":"1","name":"…","command":"npx","args":["-y","mcp-server"]}]'
+            />
+          </section>
+
+          <section className="rounded-md border border-border-soft bg-bg-soft p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+              Task templates (JSON)
+            </div>
+            <textarea
+              value={templatesJsonDraft}
+              onChange={(e) => setTemplatesJsonDraft(e.target.value)}
+              onBlur={() => {
+                try {
+                  const v = JSON.parse(templatesJsonDraft) as unknown;
+                  if (!Array.isArray(v)) throw new Error('Expected array');
+                  void update({ taskTemplates: v as typeof settings.taskTemplates });
+                } catch (e) {
+                  pushLog('warn', `Templates JSON invalid: ${(e as Error).message}`);
+                }
+              }}
+              rows={4}
+              className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[11px]"
+              placeholder='[{"id":"a","title":"Lint pass","prompt":"Run lints and summarize."}]'
+            />
+          </section>
+
+          <section className="rounded-md border border-border-soft bg-bg-soft p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+              Scheduled reminders (JSON)
+            </div>
+            <p className="mb-2 text-[10px] text-fg-subtle">
+              Fired from the main process every minute. Each enabled task pops a toast with its prompt.
+            </p>
+            <textarea
+              value={scheduledJsonDraft}
+              onChange={(e) => setScheduledJsonDraft(e.target.value)}
+              onBlur={() => {
+                try {
+                  const v = JSON.parse(scheduledJsonDraft) as unknown;
+                  if (!Array.isArray(v)) throw new Error('Expected array');
+                  void update({ scheduledTasks: v as typeof settings.scheduledTasks });
+                } catch (e) {
+                  pushLog('warn', `Scheduled tasks JSON invalid: ${(e as Error).message}`);
+                }
+              }}
+              rows={5}
+              className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[11px]"
+              placeholder='[{"id":"1","title":"Standup","intervalMinutes":60,"prompt":"Review blockers","lastRunAt":null,"enabled":true}]'
+            />
           </section>
 
           <section>

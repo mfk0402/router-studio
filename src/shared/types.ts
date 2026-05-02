@@ -97,6 +97,57 @@ export interface FileEntry {
   children?: FileEntry[];
 }
 
+export interface UserSnippet {
+  id: string;
+  name: string;
+  prefix: string;
+  body: string;
+  /** Monaco language ids; omit or empty = all languages in snippet provider */
+  languages?: string[];
+}
+
+/** Config row for MCP-style servers (registry only; full client is planned). */
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  command: string;
+  args: string[];
+}
+
+/** Reusable agent prompt presets (shown in AI panel). */
+export interface TaskTemplate {
+  id: string;
+  title: string;
+  prompt: string;
+}
+
+/** Simple interval-based reminders fired from the main process. */
+export interface ScheduledTaskEntry {
+  id: string;
+  title: string;
+  intervalMinutes: number;
+  prompt: string;
+  lastRunAt: number | null;
+  enabled: boolean;
+}
+
+/** Payload when localhost webhook POST /hook is received. */
+export interface WebhookIncomingPayload {
+  path: string;
+  method: string;
+  body: string;
+  headers: Record<string, string>;
+  receivedAt: number;
+}
+
+/** Fired when a scheduled task interval has elapsed. */
+export interface ScheduledTaskDuePayload {
+  id: string;
+  title: string;
+  prompt: string;
+  at: number;
+}
+
 export interface AppSettings {
   apiKey: string;
   defaultModel: string;
@@ -120,6 +171,17 @@ export interface AppSettings {
   /** Max tool call hops in a single turn before forcing a response. */
   maxToolHops: number;
   /**
+   * When true, the first model call in a tool loop uses agentReadModel (or defaultModel);
+   * subsequent hops after tool results use agentReasoningModel for synthesis.
+   */
+  smartAgentRouting: boolean;
+  /** OpenRouter model id for the first hop of tool-using chats (empty = default model). */
+  agentReadModel: string;
+  /** Model id for later hops after tools run (empty = default model). */
+  agentReasoningModel: string;
+  /** After a tool-using turn, run a short second pass to critique the answer (extra API call). */
+  agentReflectionPass: boolean;
+  /**
    * When true, mutating agent tools are unavailable (filtered from the model and blocked if invoked).
    * Read-only exploration: files, search, git status/diff/log, network fetch, memory read.
    */
@@ -135,6 +197,15 @@ export interface AppSettings {
   shellAllowlist: string[];
   /** File path glob patterns where writes are always auto-approved. */
   writeAllowPaths: string[];
+  /**
+   * When true, agent write tools only succeed when the path matches one of writeAllowPaths.
+   * Empty allow list blocks all writes (configure allow globs first).
+   */
+  agentWriteDenyDefault: boolean;
+  /** Path globs that are always rejected for agent writes (applied before allow-by-default rules). */
+  writeDenyPaths: string[];
+  /** Regex strings (matches command) that hard-block run_shell (in addition to built-in guards). */
+  shellDenylist: string[];
   /** Enable tool calling. When off, model gets no tools. */
   toolsEnabled: boolean;
   /** Editor settings */
@@ -151,6 +222,12 @@ export interface AppSettings {
     renderWhitespace: 'none' | 'boundary' | 'selection' | 'trailing' | 'all';
     cursorBlinking: 'blink' | 'smooth' | 'phase' | 'expand' | 'solid';
     cursorStyle: 'line' | 'block' | 'underline' | 'line-thin' | 'block-outline' | 'underline-thin';
+    /** AI ghost inline completions (OpenRouter); off by default to save tokens. */
+    ghostTextEnabled: boolean;
+    ghostTextDebounceMs: number;
+    ghostTextCooldownMs: number;
+    ghostTextMaxPrefixChars: number;
+    ghostTextMaxOutputChars: number;
   };
   /** User-configurable custom action buttons */
   customActions: Array<{
@@ -162,6 +239,27 @@ export interface AppSettings {
   }>;
   /** First-run product tour (dismissible) */
   hasCompletedProductTour: boolean;
+  /** User-defined editor snippets (prefix → completion body). */
+  userSnippets: UserSnippet[];
+  /** Distraction-free UI: hide side AI chat and minimize chrome. */
+  zenMode: boolean;
+  /** Show two editor panes side-by-side (same shortcuts; focused pane follows last click). */
+  editorSplit: boolean;
+  /** Local HTTP webhook (see main webhook server). */
+  webhookListenerEnabled: boolean;
+  webhookPort: number;
+  /** GitHub PAT for optional PR/issue tools (stored in settings file — keep repo private). */
+  githubToken: string;
+  /** Linear API key (optional integrations). */
+  linearApiKey: string;
+  /** MCP-style server registry (commands are not auto-started yet). */
+  mcpServers: McpServerConfig[];
+  /** Task / prompt templates for the AI panel. */
+  taskTemplates: TaskTemplate[];
+  /** Interval-based scheduled prompts (main process). */
+  scheduledTasks: ScheduledTaskEntry[];
+  /** Use browser Web Speech API for microphone dictation in the AI panel. */
+  voiceInputEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -181,11 +279,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
   agentMode: false,
   maxAgentIterations: 15,
   maxToolHops: 40,
+  smartAgentRouting: false,
+  agentReadModel: '',
+  agentReasoningModel: '',
+  agentReflectionPass: false,
   agentSandboxMode: false,
   agentDryRunMode: false,
   toolPolicy: {},
   shellAllowlist: [],
   writeAllowPaths: [],
+  agentWriteDenyDefault: false,
+  writeDenyPaths: [],
+  shellDenylist: [],
   toolsEnabled: true,
   editor: {
     fontSize: 13,
@@ -200,9 +305,25 @@ export const DEFAULT_SETTINGS: AppSettings = {
     renderWhitespace: 'selection',
     cursorBlinking: 'smooth',
     cursorStyle: 'line',
+    ghostTextEnabled: false,
+    ghostTextDebounceMs: 450,
+    ghostTextCooldownMs: 1200,
+    ghostTextMaxPrefixChars: 6000,
+    ghostTextMaxOutputChars: 256,
   },
   customActions: [],
   hasCompletedProductTour: false,
+  userSnippets: [],
+  zenMode: false,
+  editorSplit: false,
+  webhookListenerEnabled: false,
+  webhookPort: 17373,
+  githubToken: '',
+  linearApiKey: '',
+  mcpServers: [],
+  taskTemplates: [],
+  scheduledTasks: [],
+  voiceInputEnabled: false,
 };
 
 // ================== TOOL CALLING TYPES ==================
@@ -298,7 +419,19 @@ export interface StreamChunkExtended {
 export interface RegisteredTool {
   name: string;
   description: string;
-  category: 'filesystem' | 'search' | 'shell' | 'editor' | 'git' | 'network' | 'diagnostic' | 'docs' | 'memory';
+  category:
+    | 'filesystem'
+    | 'search'
+    | 'shell'
+    | 'editor'
+    | 'git'
+    | 'network'
+    | 'diagnostic'
+    | 'docs'
+    | 'memory'
+    | 'agent'
+    | 'integration'
+    | 'debug';
   riskLevel: 'low' | 'medium' | 'high';
   schema: ToolDefinition['function']['parameters'];
   handler: (args: Record<string, unknown>, ctx: ToolContext) => Promise<ToolHandlerResult>;
@@ -307,6 +440,8 @@ export interface RegisteredTool {
 /** Context passed to every tool handler */
 export interface ToolContext {
   projectRoot: string | null;
+  /** Active saved task id when the tool runs inside agent mode (for spawn_agent, checkpoints, etc.). */
+  activeTaskId?: string | null;
   requestApproval: (preview: string) => Promise<boolean>;
   sendProgress: (message: string) => void;
 }
@@ -318,6 +453,13 @@ export interface ToolHandlerResult {
   error?: string;
   /** For file writes: the diff preview shown to user */
   preview?: string;
+}
+
+/** Optional metadata for a tool invocation (IPC → main). */
+export interface ToolExecuteMeta {
+  /** Links tool runs to the saved agent task (spawn_agent, future checkpoints). */
+  taskId?: string;
+  requestId?: string;
 }
 
 // ================== CHAT TYPES (EXTENDED) ==================
@@ -405,6 +547,8 @@ export type AgentTaskStatus =
 /** Persistent, resumable "agent task" — a long-running chat with a goal. */
 export interface AgentTask {
   id: string;
+  /** When this task was started by spawn_agent, the parent task id. */
+  parentTaskId?: string | null;
   title: string;
   goal: string;
   status: AgentTaskStatus;
@@ -463,6 +607,10 @@ export interface DiffPreviewResult {
   error?: string;
 }
 
+export type GitCloneResult =
+  | { ok: true; projectPath: string }
+  | { ok: false; error: string };
+
 export interface IpcApi {
   secureStore: {
     get: (key: string) => Promise<string | null>;
@@ -498,6 +646,10 @@ export interface IpcApi {
       language: string;
       sizeBytes: number;
     } | null>;
+  };
+  workspace: {
+    pickParentDir: () => Promise<string | null>;
+    gitClone: (repoUrl: string, parentDir: string) => Promise<GitCloneResult>;
   };
   context: {
     fetchUrl: (url: string) => Promise<{
@@ -551,7 +703,11 @@ export interface IpcApi {
     /** Get all registered tools as definitions for the model */
     listDefinitions: () => Promise<ToolDefinition[]>;
     /** Execute a tool (main process handles approval flow) */
-    execute: (toolName: string, args: Record<string, unknown>) => Promise<ToolHandlerResult>;
+    execute: (
+      toolName: string,
+      args: Record<string, unknown>,
+      meta?: ToolExecuteMeta,
+    ) => Promise<ToolHandlerResult>;
     /** Get/set per-tool policy */
     getPolicy: (toolName: string) => Promise<ToolPolicy>;
     setPolicy: (toolName: string, policy: ToolPolicy) => Promise<void>;
@@ -568,6 +724,8 @@ export interface IpcApi {
     onToolApproval: (cb: (req: ToolApprovalRequest) => void) => () => void;
     onToolExecution: (cb: (evt: ToolExecutionEvent) => void) => () => void;
     onUpdates: (cb: (evt: UpdateEvent) => void) => () => void;
+    onWebhook: (cb: (payload: WebhookIncomingPayload) => void) => () => void;
+    onScheduledDue: (cb: (payload: ScheduledTaskDuePayload) => void) => () => void;
   };
   /** Respond to a tool approval request */
   respondToolApproval: (response: ToolApprovalResponse) => Promise<void>;
@@ -635,6 +793,8 @@ export interface TabState {
 export interface SessionState {
   version: number;
   projectRoot: string | null;
+  /** Absolute paths; MRU order (newest first). Persisted with session. */
+  recentProjectRoots: string[];
   tabs: TabState[];
   activeTabPath: string | null;
   sidebarCollapsed: boolean;

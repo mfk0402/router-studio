@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../store/appStore';
 import { PRODUCT_ROADMAP, roadmapCounts, type RoadmapStatus } from '@shared/roadmap';
 
@@ -25,7 +25,16 @@ export default function RoadmapModal() {
   const setOpen = useApp((s) => s.setShowRoadmap);
   const [filter, setFilter] = useState<RoadmapStatus | 'all'>('all');
 
-  const counts = useMemo(() => roadmapCounts(), []);
+  const counts = useMemo(() => roadmapCounts(), [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, setOpen]);
 
   const filterCls = (active: boolean) =>
     `rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors duration-layout ${
@@ -55,13 +64,16 @@ export default function RoadmapModal() {
                 .
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="rounded-md border border-border-soft bg-bg-soft px-3 py-1.5 text-xs font-medium text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
-            >
-              Close
-            </button>
+            <div className="flex flex-col items-end gap-1">
+              <span className="text-[10px] text-fg-subtle">Escape to close</span>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-md border border-border-soft bg-bg-soft px-3 py-1.5 text-xs font-medium text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+              >
+                Close
+              </button>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-3 text-[11px] text-fg-subtle">
             <span>
@@ -127,6 +139,15 @@ export default function RoadmapModal() {
               );
             })}
           </div>
+        </div>
+
+        <div className="border-t border-border-soft px-5 py-3">
+          <p className="text-[11px] leading-snug text-fg-subtle">
+            Open from the command palette with <kbd className="rounded border border-border-soft bg-bg-deep px-1 font-mono text-[10px]">roadmap</kbd>,{' '}
+            <kbd className="rounded border border-border-soft bg-bg-deep px-1 font-mono text-[10px]">backlog</kbd>, or{' '}
+            <kbd className="rounded border border-border-soft bg-bg-deep px-1 font-mono text-[10px]">features</kbd>. Longer notes:{' '}
+            <code className="rounded bg-bg-soft px-1 font-mono text-[10px] text-fg-muted">docs/ROADMAP.md</code>.
+          </p>
         </div>
       </div>
     </div>

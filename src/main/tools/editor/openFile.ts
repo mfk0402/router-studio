@@ -1,11 +1,5 @@
 import type { RegisteredTool, ToolHandlerResult } from '../../../shared/types.js';
-import type { BrowserWindow } from 'electron';
-
-let mainWindow: BrowserWindow | null = null;
-
-export function setMainWindow(win: BrowserWindow | null): void {
-  mainWindow = win;
-}
+import { getAppWindow } from '../../appWindow.js';
 
 export const tool: RegisteredTool = {
   name: 'open_file',
@@ -45,7 +39,8 @@ export const tool: RegisteredTool = {
       return { success: false, error: 'Path is required.' };
     }
 
-    if (!mainWindow || mainWindow.isDestroyed()) {
+    const mainWindow = getAppWindow();
+    if (!mainWindow) {
       return { success: false, error: 'Editor window not available.' };
     }
 

@@ -1,36 +1,30 @@
 # Router Studio — product roadmap
 
-**Canonical source:** [`src/shared/roadmap.ts`](../src/shared/roadmap.ts). Update that file when priorities change; the app renders the same data under **Help → Product roadmap** (and **Command palette → “Open Product Roadmap”**). **Help → Local usage statistics** opens privacy-preserving counters stored only on disk (`local-usage-stats.json` under Electron userData). **Help → Check for Updates…** (or palette **Check for Updates**) runs the updater in packaged builds.
+**Canonical source:** [`src/shared/roadmap.ts`](../src/shared/roadmap.ts). The app renders this under **Help → Product roadmap** (command palette: **roadmap**). **Help → Local usage statistics** opens disk-only counters. **Help → Check for Updates…** runs electron-updater in packaged builds.
 
 ## Status meanings
 
-| Status       | Meaning                                              |
-| ------------ | ---------------------------------------------------- |
-| **Shipped**  | Available in the current codebase snapshot           |
-| **In progress** | Actively being built — rare until work starts    |
-| **Planned**  | Scoped backlog — design and sequencing may change    |
+| Status | Meaning |
+| ------ | ------- |
+| **Shipped** | In the current codebase |
+| **In progress** | Partial / MVP — see per-item detail |
+| **Planned** | Backlog |
 
 ## Phases (summary)
 
-1. **Foundation & workspace** — Shell, IPC, session restore, offline queue, crash recovery, auto-update (configure feed — see below); planned: multi-window.
-2. **Models & routing** — Marketplace, free mode, cost meter; planned: smart routing, public benchmarks, built-in evaluator UI.
-3. **Editor & authoring** — Monaco, inline edit, outline, problems, multi-diff, find/replace, dark/light/system themes; planned: ghost text, LSP, Tree-sitter, VS Code theme import, snippets.
-4. **Agent, tools & chat** — Full tool suite, memory, context packer, slash commands, tasks; planned: voice, sub-agents, task DAG viz, reflection, semantic codebase search.
-5. **Panels & productivity** — Explorer, Git panel, tests, terminal, palette; planned: GitHub/GitLab/Linear/Jira, advanced layout, DAP, Docker, DB tools.
-6. **Extensibility** — Planned: MCP client, custom tools, plugins, webhooks, templates, checkpoints.
-7. **Safety & governance** — Secret redaction, audit log, agent sandbox & dry-run shipped; planned: shell analyzer, path deny defaults + undo writes.
-8. **Polish & packaging** — Local usage stats shipped (privacy-preserving); planned: a11y pass, static docs site, CI releases, signing.
+1. **Foundation** — Electron shell, session restore, welcome flow, offline queue, crash recovery, auto-update; **planned:** multi-window.
+2. **Models** — Marketplace, free mode, token/cost meter, smart read/reasoning routing; **in progress:** scripted benchmark suites.
+3. **Editor** — Monaco, Ctrl+K inline edit, outline, Problems + Fix-with-AI, multi-diff, find/replace, ghost text, zen/split, themes, usernippets; **in progress:** LSP bridge, Tree-sitter WASM, richer hovers; **planned:** VS Code .tmTheme import.
+4. **Agent & tools** — Tool runtime, approvals, filesystem/editor/search/shell/git/fetch/**read_diagnostics**/tests/memory, semantic search (BM25), spawn_agent, reflection, tasks, webhooks, templates, scheduled toasts, voice (Web Speech); **planned:** dedicated MDN/npm doc tools, Whisper path.
+5. **Panels** — Explorer, Git panel, tests, terminal, palette, GitHub/Linear tools; **in progress:** full PR/issue flows, DAP adapters, clickable task output.
+6. **Extensibility** — MCP registry JSON, custom tool discovery, plugin status, snapshots; **in progress:** MCP process host, sandboxed `.opencode` execution, checkpoint rewind UI.
+7. **Safety** — Redaction, audit log, policies, sandbox & dry-run, shell/write guards + undo writes.
+8. **Polish** — Stats panel, static `docs/index.html`, landing asset, benchmark modal; **in progress:** a11y audit, CI signing matrix.
 
-## Auto-updates (packaged builds)
+## Auto-updates
 
-The main process wires **electron-updater**. **Help → Check for Updates…** (or the command palette) triggers a check; dev builds report that updates apply only to packaged installs.
-
-Configure either:
-
-- **`ROUTER_STUDIO_UPDATES_URL`** — generic provider root hosting `latest.yml` (and installers) produced by `electron-builder publish`, or  
-- **`build.publish`** in `package.json` — so `latest.yml` is embedded for your chosen provider.
+Packaged builds use **electron-updater**. Set **`ROUTER_STUDIO_UPDATES_URL`** or **`build.publish`** so `latest.yml` and installers are reachable.
 
 ## Contributing
 
-- Pick an item in **`planned`** (or extend **`in_progress`**), implement behind the existing IPC/tool patterns, then flip its `status` in `roadmap.ts` and ship.
-- Large epics (e.g. LSP, MCP) should be split into smaller roadmap rows before marking **shipped**.
+Implement against existing `src/main/tools` + IPC patterns, then update **`roadmap.ts`** statuses and this file at a high level when behavior changes materially.

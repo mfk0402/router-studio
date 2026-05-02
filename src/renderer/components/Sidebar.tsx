@@ -13,6 +13,7 @@ export default function Sidebar() {
   const projectRoot = useApp((s) => s.projectRoot);
   const fileTree = useApp((s) => s.fileTree);
   const setProjectRoot = useApp((s) => s.setProjectRoot);
+  const pickAndOpenProjectFolder = useApp((s) => s.pickAndOpenProjectFolder);
   const setFileTree = useApp((s) => s.setFileTree);
   const pushLog = useApp((s) => s.pushLog);
   const editorInstance = useApp((s) => s.editorInstance);
@@ -59,22 +60,8 @@ export default function Sidebar() {
     };
   }, [query, pushLog]);
 
-  const openFolder = async () => {
-    pushLog('info', 'Open Folder requested…');
-    try {
-      const root = await window.api.fs.openFolder();
-      if (!root) {
-        pushLog('info', 'Open Folder canceled.');
-        return;
-      }
-      setProjectRoot(root);
-      const tree = await window.api.fs.listFiles();
-      setFileTree(tree);
-      pushLog('info', `Opened folder: ${root}`);
-    } catch (e) {
-      console.error('[openFolder]', e);
-      pushLog('error', `Open Folder failed: ${(e as Error).message}`);
-    }
+  const openFolder = () => {
+    void pickAndOpenProjectFolder();
   };
 
   const refresh = async () => {
@@ -160,7 +147,12 @@ export default function Sidebar() {
               className="w-full rounded-md border border-border bg-bg px-2 py-1 text-xs text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none"
             />
           </div>
-          <div className="min-h-0 flex-1 overflow-auto px-1 pb-4">
+          <div
+            className="min-h-0 flex-1 overflow-auto px-1 pb-4"
+            onContextMenuCapture={(e) => {
+              e.preventDefault();
+            }}
+          >
             {!projectRoot ? (
               <div className="p-3 text-center text-xs text-fg-muted">
                 No project folder open.

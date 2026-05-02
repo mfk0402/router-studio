@@ -1,10 +1,12 @@
 import { app, BrowserWindow, session, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { registerAppWindowGetter } from './appWindow.js';
 import { registerIpc } from './ipc.js';
 import { setupAutoUpdater, setUpdaterTargetWindow } from './updater.js';
 import { killAllSessions } from './terminal.js';
 import { ensureDefaultAgentRule } from './rules.js';
+import { startScheduledTasksLoop } from './scheduledTasks.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -80,24 +82,32 @@ if (!gotLock) {
   }
 
   app.whenReady().then(() => {
-    session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => {
-      // Deny notifications, media, etc. from the renderer; revisit if adding voice/capture in-page.
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      if (permission === 'media') {
+        callback(true);
+        return;
+      }
       callback(false);
     });
 
+    mainWindow = createMainWindow();
+    registerAppWindowGetter(() => mainWindow);
     registerIpc(() => mainWindow);
+    startScheduledTasksLoop(() => mainWindow);
     // Seed built-in rules (idempotent) before the window opens so the first
     // renderer scan already includes them.
     ensureDefaultAgentRule().catch((err) => {
       console.error('[rules] failed to seed defaults:', err);
     });
-    mainWindow = createMainWindow();
     setUpdaterTargetWindow(mainWindow);
     setupAutoUpdater();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         mainWindow = createMainWindow();
+        registerAppWindowGetter(() => mainWindow);
+        registerIpc(() => mainWindow);
+        startScheduledTasksLoop(() => mainWindow);
         setUpdaterTargetWindow(mainWindow);
       }
     });

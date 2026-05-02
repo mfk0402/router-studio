@@ -10,7 +10,6 @@
  * - handler: async function that executes the tool
  */
 
-import type { BrowserWindow } from 'electron';
 import type {
   ToolDefinition,
   ToolPolicy,
@@ -23,6 +22,7 @@ import type {
 } from '../../shared/types.js';
 import { getSettings, setSettings } from '../secureStore.js';
 import { getRoot } from '../fileSystem.js';
+import { getAppWindow } from '../appWindow.js';
 import { randomUUID } from 'node:crypto';
 import { redactSecrets } from '../../shared/redactSecrets.js';
 import * as toolAudit from '../toolAudit.js';
@@ -40,9 +40,21 @@ const SANDBOX_BLOCKED_TOOLS = new Set<string>([
   'run_tests',
   'memory_set',
   'memory_forget',
+  'undo_agent_writes',
 ]);
 
 function blockedBySandbox(toolName: string, args: Record<string, unknown>): boolean {
+  if (toolName === 'sqlite_query' && args.readonly === false) {
+    return true;
+  }
+  if (
+    toolName === 'save_user_snippet' ||
+    toolName === 'add_task_template' ||
+    toolName === 'workspace_snapshot_save' ||
+    toolName === 'run_npm_script'
+  ) {
+    return true;
+  }
   if (SANDBOX_BLOCKED_TOOLS.has(toolName)) return true;
   if (toolName === 'git_branch') {
     const action = String(args.action ?? '');
@@ -52,6 +64,17 @@ function blockedBySandbox(toolName: string, args: Record<string, unknown>): bool
 }
 
 function shouldDryRunSimulate(toolName: string, args: Record<string, unknown>): boolean {
+  if (
+    toolName === 'save_user_snippet' ||
+    toolName === 'add_task_template' ||
+    toolName === 'workspace_snapshot_save' ||
+    toolName === 'run_npm_script'
+  ) {
+    return true;
+  }
+  if (toolName === 'sqlite_query' && args.readonly === false) {
+    return true;
+  }
   if (!SANDBOX_BLOCKED_TOOLS.has(toolName)) {
     if (toolName === 'git_branch') {
       const action = String(args.action ?? '');
@@ -137,6 +160,19 @@ function buildDryRunSummary(
         action: 'would_memory_forget',
         key: args.key,
       };
+    case 'undo_agent_writes':
+      return {
+        ...base,
+        action: 'would_undo_agent_writes',
+      };
+    case 'save_user_snippet':
+      return { ...base, action: 'would_save_user_snippet', prefix: args.prefix };
+    case 'add_task_template':
+      return { ...base, action: 'would_add_task_template', title: args.title };
+    case 'workspace_snapshot_save':
+      return { ...base, action: 'would_workspace_snapshot', paths: args.paths };
+    case 'run_npm_script':
+      return { ...base, action: 'would_npm_run', script: args.script };
     default:
       return { ...base, action: 'would_execute', args };
   }
@@ -148,11 +184,13 @@ import * as writeFileTool from './fs/writeFile.js';
 import * as editFileTool from './fs/editFile.js';
 import * as createFileTool from './fs/createFile.js';
 import * as deleteFileTool from './fs/deleteFile.js';
+import * as undoAgentWritesTool from './fs/undoAgentWrites.js';
 import * as listDirTool from './fs/listDir.js';
 import * as statFileTool from './fs/statFile.js';
 import * as grepTool from './search/grep.js';
 import * as findFilesTool from './search/findFiles.js';
 import * as searchSymbolsTool from './search/searchSymbols.js';
+import * as semanticSearchTools from './search/semanticSearch.js';
 import * as runShellTool from './shell/runShell.js';
 import * as openFileTool from './editor/openFile.js';
 import * as getOpenTabsTool from './editor/getOpenTabs.js';
@@ -166,7 +204,10 @@ import * as gitAddTool from './git/gitAdd.js';
 import * as fetchUrlTool from './network/fetchUrl.js';
 import * as fetchJsonTool from './network/fetchJson.js';
 import * as runTestsTool from './diagnostic/runTests.js';
+import * as readDiagnosticsTool from './diagnostic/readDiagnostics.js';
 import * as memoryTools from './memory/memoryTools.js';
+import * as spawnAgentTool from './agent/spawnAgent.js';
+import * as extrasTools from './integration/extrasTools.js';
 
 const registry = new Map<string, RegisteredTool>();
 
@@ -176,18 +217,9 @@ const pendingApprovals = new Map<string, {
   request: ToolApprovalRequest;
 }>();
 
-let mainWindow: BrowserWindow | null = null;
-
-export function setMainWindow(win: BrowserWindow | null): void {
-  mainWindow = win;
-  // Also set for editor tools
-  openFileTool.setMainWindow(win);
-  getOpenTabsTool.setMainWindow(win);
-  getSelectionTool.setMainWindow(win);
-}
-
 function sendToRenderer<T>(channel: string, data: T): void {
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  const mainWindow = getAppWindow();
+  if (mainWindow) {
     mainWindow.webContents.send(channel, data);
   }
 }
@@ -205,6 +237,9 @@ export function registerTool(tool: RegisteredTool): void {
  */
 export async function getToolDefinitions(): Promise<ToolDefinition[]> {
   const settings = await getSettings();
+  if (!settings.toolsEnabled) {
+    return [];
+  }
   const entries = Array.from(registry.values()).filter((t) => {
     if (!settings.agentSandboxMode) return true;
     return !SANDBOX_BLOCKED_TOOLS.has(t.name);
@@ -390,6 +425,7 @@ export async function executeTool(
   toolName: string,
   args: Record<string, unknown>,
   requestId?: string,
+  activeTaskId?: string | null,
 ): Promise<ToolHandlerResult> {
   const tool = registry.get(toolName);
   if (!tool) {
@@ -497,6 +533,7 @@ export async function executeTool(
 
   const ctx: ToolContext = {
     projectRoot: getRoot(),
+    activeTaskId: activeTaskId ?? null,
     requestApproval: async (preview: string) => {
       return requestApproval(tool, args, preview);
     },
@@ -642,6 +679,7 @@ export function initializeTools(): void {
   registerTool(editFileTool.tool);
   registerTool(createFileTool.tool);
   registerTool(deleteFileTool.tool);
+  registerTool(undoAgentWritesTool.tool);
   registerTool(listDirTool.tool);
   registerTool(statFileTool.tool);
 
@@ -649,6 +687,9 @@ export function initializeTools(): void {
   registerTool(grepTool.tool);
   registerTool(findFilesTool.tool);
   registerTool(searchSymbolsTool.tool);
+  registerTool(semanticSearchTools.semanticSearchTool);
+  registerTool(semanticSearchTools.reindexCodebaseTool);
+  registerTool(semanticSearchTools.findSimilarTool);
 
   // Shell tools
   registerTool(runShellTool.tool);
@@ -672,10 +713,31 @@ export function initializeTools(): void {
 
   // Diagnostic tools
   registerTool(runTestsTool.tool);
+  registerTool(readDiagnosticsTool.tool);
 
   // Memory tools
   registerTool(memoryTools.memorySetTool);
   registerTool(memoryTools.memoryGetTool);
   registerTool(memoryTools.memoryListTool);
   registerTool(memoryTools.memoryForgetTool);
+
+  registerTool(spawnAgentTool.spawnAgentTool);
+
+  registerTool(extrasTools.dockerPsTool);
+  registerTool(extrasTools.sqliteQueryTool);
+  registerTool(extrasTools.githubListIssuesTool);
+  registerTool(extrasTools.linearListIssuesTool);
+  registerTool(extrasTools.listMcpServersTool);
+  registerTool(extrasTools.listOpencodeCustomToolsTool);
+  registerTool(extrasTools.pluginRegistryStatusTool);
+  registerTool(extrasTools.exportAgentTaskTool);
+  registerTool(extrasTools.workspaceSnapshotSaveTool);
+  registerTool(extrasTools.listWorkspaceSnapshotsTool);
+  registerTool(extrasTools.treesitterOutlineTool);
+  registerTool(extrasTools.lspWorkspaceStatusTool);
+  registerTool(extrasTools.debugAdapterStatusTool);
+  registerTool(extrasTools.runNpmScriptTool);
+  registerTool(extrasTools.listScheduledTasksTool);
+  registerTool(extrasTools.saveUserSnippetTool);
+  registerTool(extrasTools.addTaskTemplateTool);
 }

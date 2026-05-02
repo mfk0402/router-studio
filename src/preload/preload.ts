@@ -6,14 +6,17 @@ import type {
   ChatCompletionRequest,
   IpcApi,
   Rule,
+  ScheduledTaskDuePayload,
   SessionState,
   StreamChunk,
   TerminalEvent,
   ToolApprovalRequest,
   ToolApprovalResponse,
   ToolExecutionEvent,
+  ToolExecuteMeta,
   ToolPolicy,
   UpdateEvent,
+  WebhookIncomingPayload,
 } from '../shared/types.js';
 
 const api: IpcApi = {
@@ -40,6 +43,11 @@ const api: IpcApi = {
     backupFile: (rel) => ipcRenderer.invoke('fs:backupFile', rel),
     pickImage: () => ipcRenderer.invoke('fs:pickImage'),
     pickTextFile: () => ipcRenderer.invoke('fs:pickTextFile'),
+  },
+  workspace: {
+    pickParentDir: () => ipcRenderer.invoke('workspace:pickParentDir'),
+    gitClone: (repoUrl: string, parentDir: string) =>
+      ipcRenderer.invoke('workspace:gitClone', repoUrl, parentDir),
   },
   context: {
     fetchUrl: (url) => ipcRenderer.invoke('context:fetchUrl', url),
@@ -75,8 +83,11 @@ const api: IpcApi = {
   },
   tools: {
     listDefinitions: () => ipcRenderer.invoke('tools:listDefinitions'),
-    execute: (toolName: string, args: Record<string, unknown>) =>
-      ipcRenderer.invoke('tools:execute', toolName, args),
+    execute: (
+      toolName: string,
+      args: Record<string, unknown>,
+      meta?: ToolExecuteMeta,
+    ) => ipcRenderer.invoke('tools:execute', toolName, args, meta),
     getPolicy: (toolName: string) => ipcRenderer.invoke('tools:getPolicy', toolName),
     setPolicy: (toolName: string, policy: ToolPolicy) =>
       ipcRenderer.invoke('tools:setPolicy', toolName, policy),
@@ -117,6 +128,18 @@ const api: IpcApi = {
       const listener = (_e: Electron.IpcRendererEvent, evt: UpdateEvent) => cb(evt);
       ipcRenderer.on('updates:event', listener);
       return () => ipcRenderer.removeListener('updates:event', listener);
+    },
+    onWebhook: (cb: (payload: WebhookIncomingPayload) => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, payload: WebhookIncomingPayload) =>
+        cb(payload);
+      ipcRenderer.on('webhook:incoming', listener);
+      return () => ipcRenderer.removeListener('webhook:incoming', listener);
+    },
+    onScheduledDue: (cb: (payload: ScheduledTaskDuePayload) => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, payload: ScheduledTaskDuePayload) =>
+        cb(payload);
+      ipcRenderer.on('scheduled:due', listener);
+      return () => ipcRenderer.removeListener('scheduled:due', listener);
     },
   },
   respondToolApproval: (response: ToolApprovalResponse) =>

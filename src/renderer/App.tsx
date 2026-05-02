@@ -20,6 +20,8 @@ import { FindReplaceDialog } from './components/FindReplaceDialog';
 import WelcomeTour from './components/WelcomeTour';
 import RoadmapModal from './components/RoadmapModal';
 import StatsModal from './components/StatsModal';
+import BenchmarkModal from './components/BenchmarkModal';
+import WelcomePane from './components/WelcomePane';
 import { toast } from './components/ToastContainer';
 import { useApp } from './store/appStore';
 import { useSettings } from './store/settingsStore';
@@ -28,7 +30,6 @@ import { useTasks } from './store/tasksStore';
 import { useTools, setupToolEventListeners } from './store/toolsStore';
 import { loadCachedModels, fetchModels } from './lib/openrouterClient';
 import { useResolvedTheme } from './hooks/useResolvedTheme';
-import logoFull from './assets/logo-full.png';
 import logoIcon from './assets/logo-icon.png';
 
 const SESSION_SAVE_INTERVAL = 30000; // 30 seconds
@@ -108,6 +109,8 @@ function AppInner() {
 
   const welcomeTourNonce = useApp((s) => s.welcomeTourNonce);
   const [showWelcomeTour, setShowWelcomeTour] = useState(false);
+  const zenMode = useSettings((s) => s.settings.zenMode);
+  const editorSplit = useSettings((s) => s.settings.editorSplit);
 
   const autosaveTimerRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const sessionInitializedRef = useRef(false);
@@ -212,6 +215,21 @@ function AppInner() {
     return unsub;
   }, []);
 
+  useEffect(() => {
+    const offWebhook = window.api.events.onWebhook((p) => {
+      const preview = p.body.length > 160 ? `${p.body.slice(0, 160)}…` : p.body;
+      toast.info('Webhook POST /hook', preview || '(empty body)');
+    });
+    const offSched = window.api.events.onScheduledDue((p) => {
+      const pre = p.prompt.length > 120 ? `${p.prompt.slice(0, 120)}…` : p.prompt;
+      toast.info(`Scheduled: ${p.title}`, pre);
+    });
+    return () => {
+      offWebhook();
+      offSched();
+    };
+  }, []);
+
   // Re-scan rules whenever the project root changes (including on initial load).
   useEffect(() => {
     void refreshRules();
@@ -253,6 +271,17 @@ function AppInner() {
     if (welcomeTourNonce === 0) return;
     setShowWelcomeTour(true);
   }, [welcomeTourNonce]);
+
+  useEffect(() => {
+    if (!zenMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        void useSettings.getState().update({ zenMode: false });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [zenMode]);
 
   const handleSaveActiveTab = useCallback(async () => {
     const state = useApp.getState();
@@ -311,6 +340,9 @@ function AppInner() {
       } else if (key === 'h' && e.shiftKey) {
         e.preventDefault();
         useApp.getState().setShowFindReplace(true);
+      } else if (key === 'o' && !e.shiftKey) {
+        e.preventDefault();
+        void useApp.getState().pickAndOpenProjectFolder();
       }
     };
     window.addEventListener('keydown', handler);
@@ -325,29 +357,53 @@ function AppInner() {
   ]);
 
   return (
-    <div className="flex h-full w-full flex-col bg-bg text-fg">
-      <MenuBar />
-      <TopBar />
+    <div
+      className={
+        'flex h-full w-full flex-col bg-bg text-fg' + (zenMode ? ' zen-mode' : '')
+      }
+    >
+      {!zenMode && <MenuBar />}
+      {!zenMode && <TopBar />}
       <div className="flex min-h-0 flex-1">
-        {!sidebarCollapsed && (
+        {!zenMode && !sidebarCollapsed && (
           <div className="w-64 shrink-0 border-r border-border-soft bg-bg-soft">
             <Sidebar />
           </div>
         )}
         <div className="flex min-w-0 flex-1 flex-col">
-          <EditorTabs />
-          <div className="min-h-0 flex-1">
-            {tabs.length === 0 ? <WelcomePane /> : <MonacoEditorPane key={activeTabPath ?? '_'} />}
+          {!zenMode && <EditorTabs />}
+          <div
+            className={
+              'min-h-0 flex-1' + (editorSplit && tabs.length > 0 ? ' flex flex-row' : '')
+            }
+          >
+            {tabs.length === 0 ? (
+              <WelcomePane />
+            ) : editorSplit ? (
+              <>
+                <div className="min-h-0 min-w-0 flex-1 border-r border-border-soft">
+                  <MonacoEditorPane />
+                </div>
+                <div className="min-h-0 min-w-0 flex-1">
+                  <MonacoEditorPane />
+                </div>
+              </>
+            ) : (
+              <MonacoEditorPane />
+            )}
           </div>
-          <BottomPanel />
+          {!zenMode && <BottomPanel />}
         </div>
-        <div className="w-[420px] shrink-0 border-l border-border-soft bg-bg-soft">
-          <AiPanel />
-        </div>
+        {!zenMode && (
+          <div className="w-[420px] shrink-0 border-l border-border-soft bg-bg-soft">
+            <AiPanel />
+          </div>
+        )}
       </div>
 
       <RoadmapModal />
       <StatsModal />
+      <BenchmarkModal />
       <SettingsModal />
       <ModelPicker />
       <QuickOpen />
@@ -367,29 +423,13 @@ function AppInner() {
 
 function TopBar() {
   const projectRoot = useApp((s) => s.projectRoot);
-  const setProjectRoot = useApp((s) => s.setProjectRoot);
-  const setFileTree = useApp((s) => s.setFileTree);
+  const pickAndOpenProjectFolder = useApp((s) => s.pickAndOpenProjectFolder);
   const setShowSettings = useApp((s) => s.setShowSettings);
   const setShowModelPicker = useApp((s) => s.setShowModelPicker);
-  const pushLog = useApp((s) => s.pushLog);
   const toggleSidebar = useApp((s) => s.toggleSidebar);
 
-  const openFolder = async () => {
-    pushLog('info', 'Open Folder requested…');
-    try {
-      const root = await window.api.fs.openFolder();
-      if (!root) {
-        pushLog('info', 'Open Folder canceled.');
-        return;
-      }
-      setProjectRoot(root);
-      const tree = await window.api.fs.listFiles();
-      setFileTree(tree);
-      pushLog('info', `Opened folder: ${root}`);
-    } catch (e) {
-      console.error('[openFolder]', e);
-      pushLog('error', `Open Folder failed: ${(e as Error).message}`);
-    }
+  const openFolder = () => {
+    void pickAndOpenProjectFolder();
   };
 
   return (
@@ -446,138 +486,6 @@ function TopBar() {
         >
           Settings
         </button>
-      </div>
-    </div>
-  );
-}
-
-function WelcomePane() {
-  const setShowSettings = useApp((s) => s.setShowSettings);
-  const setProjectRoot = useApp((s) => s.setProjectRoot);
-  const setFileTree = useApp((s) => s.setFileTree);
-  const pushLog = useApp((s) => s.pushLog);
-
-  const openFolder = async () => {
-    pushLog('info', 'Open Folder requested…');
-    try {
-      const root = await window.api.fs.openFolder();
-      if (!root) {
-        pushLog('info', 'Open Folder canceled.');
-        return;
-      }
-      setProjectRoot(root);
-      const tree = await window.api.fs.listFiles();
-      setFileTree(tree);
-      pushLog('info', `Opened folder: ${root}`);
-    } catch (e) {
-      console.error('[openFolder]', e);
-      pushLog('error', `Open Folder failed: ${(e as Error).message}`);
-    }
-  };
-
-  const features = [
-    { icon: '💻', title: 'Any AI Model', desc: 'Access Claude, GPT, Gemini, Llama, and 100+ models via OpenRouter' },
-    { icon: '🎨', title: 'Multi-Modal', desc: 'Vision, image generation, video, audio — all in one workspace' },
-    { icon: '🛠️', title: 'Agent Tools', desc: 'File editing, shell commands, git, search, diagnostics, and more' },
-    { icon: '📝', title: 'Monaco Editor', desc: 'VS Code-quality editing with 60+ languages, formatting, IntelliSense' },
-    { icon: '🔒', title: 'Local & Private', desc: 'Your code stays on your machine. No telemetry, no cloud storage' },
-    { icon: '🆓', title: 'Free Mode', desc: 'Route through free models when you want zero-cost AI assistance' },
-  ];
-
-  return (
-    <div className="flex h-full min-h-0 flex-col items-center overflow-y-auto welcome-hero px-6 pb-16 pt-10 sm:px-10">
-      <div className="w-full max-w-4xl">
-        <div className="mb-10 flex flex-col items-center text-center">
-          <h1 className="sr-only">Router Studio</h1>
-          <div className="brand-logo-plate mb-5">
-            <img
-              src={logoFull}
-              alt="Router Studio"
-              className="h-auto w-[min(100%,20rem)] max-w-full select-none"
-              draggable={false}
-            />
-          </div>
-          <p className="max-w-lg text-balance text-base font-medium leading-relaxed text-fg-muted sm:text-lg">
-            One workspace for every AI model — edit, ship, and delegate work across models without switching tools.
-          </p>
-        </div>
-
-        <div className="mb-3 flex items-end justify-between gap-4 px-0.5">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Capabilities</h2>
-          <span className="hidden text-[11px] text-fg-subtle sm:inline">Keyboard-first · see Help → Shortcuts</span>
-        </div>
-
-        <div className="mb-10 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
-          {features.map((f) => (
-            <div
-              key={f.title}
-              className="group flex gap-3 rounded-xl border border-border-soft bg-bg-elevated p-4 shadow-card transition-all duration-layout hover:border-accent/35 hover:shadow-card-hover"
-            >
-              <span className="select-none text-xl leading-none text-accent/90 transition-transform duration-layout group-hover:scale-105">
-                {f.icon}
-              </span>
-              <div className="min-w-0 text-left">
-                <h3 className="mb-1 text-sm font-semibold text-fg">{f.title}</h3>
-                <p className="text-xs leading-snug text-fg-muted">{f.desc}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="mb-3 px-0.5">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Get started</h2>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            className="rounded-lg bg-accent px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-accent/15 transition-colors duration-layout hover:bg-accent/90"
-            onClick={openFolder}
-          >
-            Open Folder
-          </button>
-          <button
-            type="button"
-            className="rounded-lg border border-border bg-bg-soft px-6 py-2.5 text-sm font-medium text-fg transition-colors duration-layout hover:border-border hover:bg-bg-hover"
-            onClick={() => setShowSettings(true)}
-          >
-            Add API Key
-          </button>
-          <span className="text-[11px] text-fg-subtle">
-            Tip: <kbd className="rounded border border-border-soft bg-bg-deep px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">Ctrl+Shift+P</kbd>{' '}
-            opens commands anywhere
-          </span>
-        </div>
-
-        <div className="mt-10 flex flex-wrap justify-center gap-x-6 gap-y-2 border-t border-border-soft pt-8 text-xs text-fg-subtle">
-          <span>
-            <kbd className="rounded border border-border-soft bg-bg-deep px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">Ctrl+P</kbd>{' '}
-            Quick open
-          </span>
-          <span>
-            <kbd className="rounded border border-border-soft bg-bg-deep px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">Ctrl+Shift+A</kbd>{' '}
-            Focus AI
-          </span>
-          <span>
-            <kbd className="rounded border border-border-soft bg-bg-deep px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">Ctrl+S</kbd> Save
-          </span>
-          <span>
-            <kbd className="rounded border border-border-soft bg-bg-deep px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">Ctrl+B</kbd>{' '}
-            Sidebar
-          </span>
-        </div>
-
-        <div className="mt-8 text-center text-[10px] text-fg-subtle/70">
-          <button
-            type="button"
-            className="text-accent/90 underline decoration-accent/30 underline-offset-2 transition-colors hover:text-accent"
-            onClick={() => useApp.getState().setShowRoadmap(true)}
-          >
-            Product roadmap
-          </button>
-          <span className="mx-2 text-border-soft">·</span>
-          <span>v0.1.0 · Powered by OpenRouter</span>
-        </div>
       </div>
     </div>
   );

@@ -45,6 +45,7 @@ export default function MenuBar() {
   const setFreeMode = useApp((s) => s.setFreeMode);
 
   const settings = useSettings((s) => s.settings);
+  const updateSettings = useSettings((s) => s.update);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -65,7 +66,7 @@ export default function MenuBar() {
           label: 'Open Folder...',
           shortcut: 'Ctrl+O',
           action: () => {
-            window.api.fs.openFolder();
+            void useApp.getState().pickAndOpenProjectFolder();
             setOpenMenu(null);
           },
         },
@@ -224,6 +225,24 @@ export default function MenuBar() {
             setOpenMenu(null);
           },
         },
+        { divider: true, label: '' },
+        {
+          label: settings.zenMode ? 'Exit Zen Mode' : 'Zen Mode',
+          shortcut: 'Escape',
+          action: async () => {
+            await updateSettings({ zenMode: !settings.zenMode });
+            await useSettings.getState().load();
+            setOpenMenu(null);
+          },
+        },
+        {
+          label: settings.editorSplit ? 'Single Editor' : 'Split Editor',
+          action: async () => {
+            await updateSettings({ editorSplit: !settings.editorSplit });
+            await useSettings.getState().load();
+            setOpenMenu(null);
+          },
+        },
       ],
     },
     {
@@ -305,7 +324,7 @@ export default function MenuBar() {
           },
         },
         {
-          label: 'Product roadmap',
+          label: 'Product roadmap…',
           action: () => {
             setShowRoadmap(true);
             setOpenMenu(null);

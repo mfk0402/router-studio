@@ -1,5 +1,8 @@
-import { autoUpdater } from 'electron-updater';
+import electronUpdater from 'electron-updater';
 import { app, BrowserWindow } from 'electron';
+
+/** CJS package: use default export when running as ESM (see electron-updater + Node ESM interop). */
+const { autoUpdater } = electronUpdater;
 import type { UpdateCheckInvokeResult, UpdateEvent } from '../shared/types.js';
 
 let targetWindow: BrowserWindow | null = null;

@@ -1,6 +1,8 @@
 import { BrowserWindow, ipcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
+import { IPC_INVOKE_CHANNELS } from './ipcChannels.js';
 import * as fsApi from './fileSystem.js';
+import * as workspaceApi from './workspace.js';
 import * as orApi from './openrouter.js';
 import * as store from './secureStore.js';
 import * as term from './terminal.js';
@@ -14,6 +16,7 @@ import * as screenshotApi from './screenshot.js';
 import * as toolAuditApi from './toolAudit.js';
 import * as updaterApi from './updater.js';
 import * as statsApi from './localStats.js';
+import { restartWebhookServer } from './webhookServer.js';
 import type {
   AgentTask,
   AppSettings,
@@ -24,9 +27,12 @@ import type {
 } from '../shared/types.js';
 
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
-  // Initialize tools and set main window reference
+  for (const channel of IPC_INVOKE_CHANNELS) {
+    ipcMain.removeHandler(channel);
+  }
+
   toolsApi.initializeTools();
-  toolsApi.setMainWindow(getWindow());
+
   // ---- secure store ----
   ipcMain.handle('secureStore:get', async (_e, key: string) => store.secretGet(key));
   ipcMain.handle('secureStore:set', async (_e, key: string, value: string) =>
@@ -36,9 +42,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // ---- settings ----
   ipcMain.handle('settings:get', async () => store.getSettings());
-  ipcMain.handle('settings:set', async (_e, partial: Partial<AppSettings>) =>
-    store.setSettings(partial),
-  );
+  ipcMain.handle('settings:set', async (_e, partial: Partial<AppSettings>) => {
+    const next = await store.setSettings(partial);
+    restartWebhookServer(getWindow(), next.webhookListenerEnabled, next.webhookPort);
+    return next;
+  });
 
   // ---- file system ----
   ipcMain.handle('fs:openFolder', async () => fsApi.openFolder(getWindow()));
@@ -60,6 +68,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('fs:backupFile', async (_e, rel: string) => fsApi.backupFile(rel));
   ipcMain.handle('fs:pickImage', async () => ctxApi.pickImage(getWindow()));
   ipcMain.handle('fs:pickTextFile', async () => ctxApi.pickTextFile(getWindow()));
+
+  ipcMain.handle('workspace:pickParentDir', async () => workspaceApi.pickParentDirectory(getWindow()));
+  ipcMain.handle(
+    'workspace:gitClone',
+    async (_e, repoUrl: string, parentDir: string) => workspaceApi.gitCloneRepository(repoUrl, parentDir),
+  );
 
   // ---- context (URL fetching) ----
   ipcMain.handle('context:fetchUrl', async (_e, url: string) => ctxApi.fetchUrl(url));
@@ -126,8 +140,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('tools:listDefinitions', async () => toolsApi.getToolDefinitions());
   ipcMain.handle(
     'tools:execute',
-    async (_e, toolName: string, args: Record<string, unknown>) => {
-      return toolsApi.executeTool(toolName, args);
+    async (
+      _e,
+      toolName: string,
+      args: Record<string, unknown>,
+      meta?: { taskId?: string; requestId?: string },
+    ) => {
+      return toolsApi.executeTool(toolName, args, meta?.requestId, meta?.taskId ?? null);
     },
   );
   ipcMain.handle('tools:getPolicy', async (_e, toolName: string) =>
@@ -204,5 +223,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('updates:download', async () => updaterApi.invokeDownloadUpdate());
   ipcMain.handle('updates:quitAndInstall', async () => {
     updaterApi.invokeQuitAndInstall();
+  });
+
+  void store.getSettings().then((s) => {
+    restartWebhookServer(getWindow(), s.webhookListenerEnabled, s.webhookPort);
   });
 }

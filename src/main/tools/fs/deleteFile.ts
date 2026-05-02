@@ -1,6 +1,8 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { RegisteredTool, ToolHandlerResult } from '../../../shared/types.js';
+import { getSettings } from '../../secureStore.js';
+import { assertWriteAllowed } from '../../writePolicy.js';
 
 export const tool: RegisteredTool = {
   name: 'delete_file',
@@ -34,6 +36,12 @@ export const tool: RegisteredTool = {
     const absPath = path.resolve(ctx.projectRoot, relativePath);
     if (!absPath.startsWith(ctx.projectRoot)) {
       return { success: false, error: 'Path must be within the project root.' };
+    }
+
+    const settings = await getSettings();
+    const policy = assertWriteAllowed(settings, relativePath);
+    if (!policy.ok) {
+      return { success: false, error: policy.error };
     }
 
     // Check for protected paths

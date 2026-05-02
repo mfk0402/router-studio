@@ -23,14 +23,11 @@ export default function FileTree({ node, depth }: FileTreeProps) {
   const pushLog = useApp((s) => s.pushLog);
   const setFileTree = useApp((s) => s.setFileTree);
 
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent, targetNode: FileEntry) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setContextMenu({ x: e.clientX, y: e.clientY, node: targetNode });
-    },
-    [],
-  );
+  const handleContextMenu = useCallback((e: React.MouseEvent, targetNode: FileEntry) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, node: targetNode });
+  }, []);
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -159,7 +156,7 @@ export default function FileTree({ node, depth }: FileTreeProps) {
         {depth === 0 ? null : (
           <button
             onClick={() => setOpen((o) => !o)}
-            onContextMenu={(e) => handleContextMenu(e, node)}
+            onContextMenuCapture={(e) => handleContextMenu(e, node)}
             className="flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-xs text-fg-muted hover:bg-bg-hover hover:text-fg"
             style={{ paddingLeft: depth * 10 + 4 }}
             title={node.relativePath}
@@ -172,7 +169,7 @@ export default function FileTree({ node, depth }: FileTreeProps) {
           node.children?.map((c) => (
             <FileTree key={c.relativePath} node={c} depth={depth + 1} />
           ))}
-        {contextMenu && (
+        {contextMenu && contextMenu.node.relativePath === node.relativePath && (
           <ContextMenu
             x={contextMenu.x}
             y={contextMenu.y}
@@ -204,14 +201,14 @@ export default function FileTree({ node, depth }: FileTreeProps) {
     <>
       <button
         onClick={handleOpen}
-        onContextMenu={(e) => handleContextMenu(e, node)}
+        onContextMenuCapture={(e) => handleContextMenu(e, node)}
         className="flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-xs text-fg-muted hover:bg-bg-hover hover:text-fg"
         style={{ paddingLeft: depth * 10 + 18 }}
         title={node.relativePath}
       >
         <span className="truncate">{node.name}</span>
       </button>
-      {contextMenu && contextMenu.node === node && (
+      {contextMenu && contextMenu.node.relativePath === node.relativePath && (
         <ContextMenu
           x={contextMenu.x}
           y={contextMenu.y}

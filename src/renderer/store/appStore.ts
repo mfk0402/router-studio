@@ -10,6 +10,13 @@ import type {
 import { redactSecrets } from '../../shared/redactSecrets';
 import { useSettings } from './settingsStore';
 
+const MAX_RECENT_PROJECTS = 15;
+
+function touchRecentList(list: string[], absolutePath: string): string[] {
+  const next = [absolutePath, ...list.filter((p) => p !== absolutePath)];
+  return next.slice(0, MAX_RECENT_PROJECTS);
+}
+
 export interface OpenTab {
   relativePath: string;
   name: string;
@@ -40,8 +47,14 @@ interface AppState {
   // project
   projectRoot: string | null;
   fileTree: FileEntry | null;
+  /** Absolute paths, MRU (persisted in session). */
+  recentProjectRoots: string[];
   setProjectRoot: (root: string | null) => void;
   setFileTree: (tree: FileEntry | null) => void;
+  touchRecentProject: (absolutePath: string) => void;
+  removeRecentProject: (absolutePath: string) => void;
+  openProjectFromPath: (absolutePath: string) => Promise<boolean>;
+  pickAndOpenProjectFolder: () => Promise<boolean>;
 
   // tabs / editor
   tabs: OpenTab[];
@@ -118,6 +131,8 @@ interface AppState {
   setShowRoadmap: (v: boolean) => void;
   showUsageStats: boolean;
   setShowUsageStats: (v: boolean) => void;
+  showBenchmark: boolean;
+  setShowBenchmark: (v: boolean) => void;
 
   /** Increment to re-open the welcome tour (Help menu). */
   welcomeTourNonce: number;
@@ -183,13 +198,60 @@ interface AppState {
   // set multiple tabs at once (for session restore)
   setTabs: (tabs: OpenTab[]) => void;
   setSidebarCollapsed: (v: boolean) => void;
+  /** Reorder open tabs (e.g. drag-and-drop). */
+  reorderTabs: (fromIndex: number, toIndex: number) => void;
 }
 
-export const useApp = create<AppState>((set) => ({
+export const useApp = create<AppState>((set, get) => ({
   projectRoot: null,
   fileTree: null,
+  recentProjectRoots: [],
   setProjectRoot: (root) => set({ projectRoot: root }),
   setFileTree: (tree) => set({ fileTree: tree }),
+  touchRecentProject: (absolutePath) =>
+    set((s) => ({ recentProjectRoots: touchRecentList(s.recentProjectRoots, absolutePath) })),
+  removeRecentProject: (absolutePath) =>
+    set((s) => ({
+      recentProjectRoots: s.recentProjectRoots.filter((p) => p !== absolutePath),
+    })),
+  pickAndOpenProjectFolder: async () => {
+    const pushLog = get().pushLog;
+    try {
+      const root = await window.api.fs.openFolder();
+      if (!root) {
+        pushLog('info', 'Open Folder canceled.');
+        return false;
+      }
+      return await get().openProjectFromPath(root);
+    } catch (e) {
+      pushLog('error', `Open Folder failed: ${(e as Error).message}`);
+      return false;
+    }
+  },
+  openProjectFromPath: async (absolutePath: string) => {
+    const pushLog = get().pushLog;
+    try {
+      const ok = await window.api.fs.setRoot(absolutePath);
+      if (!ok) {
+        pushLog('error', `Could not open project folder:\n${absolutePath}`);
+        get().removeRecentProject(absolutePath);
+        void get().saveSession();
+        return false;
+      }
+      const tree = await window.api.fs.listFiles();
+      set((s) => ({
+        projectRoot: absolutePath,
+        fileTree: tree,
+        recentProjectRoots: touchRecentList(s.recentProjectRoots, absolutePath),
+      }));
+      void get().saveSession();
+      pushLog('info', `Opened folder: ${absolutePath}`);
+      return true;
+    } catch (e) {
+      pushLog('error', `Open failed: ${(e as Error).message}`);
+      return false;
+    }
+  },
 
   tabs: [],
   activeTabPath: null,
@@ -389,6 +451,8 @@ export const useApp = create<AppState>((set) => ({
   setShowRoadmap: (v) => set({ showRoadmap: v }),
   showUsageStats: false,
   setShowUsageStats: (v) => set({ showUsageStats: v }),
+  showBenchmark: false,
+  setShowBenchmark: (v) => set({ showBenchmark: v }),
 
   welcomeTourNonce: 0,
   triggerWelcomeTour: () => {
@@ -440,15 +504,30 @@ export const useApp = create<AppState>((set) => ({
     try {
       set({ sessionLoading: true });
       const session = await window.api.session.load();
+      const initialRecents = session.recentProjectRoots ?? [];
 
-      // Restore project root
       if (session.projectRoot) {
         const ok = await window.api.fs.setRoot(session.projectRoot);
         if (ok) {
-          set({ projectRoot: session.projectRoot });
           const tree = await window.api.fs.listFiles();
-          set({ fileTree: tree });
+          set((s) => ({
+            recentProjectRoots: touchRecentList(initialRecents, session.projectRoot!),
+            projectRoot: session.projectRoot,
+            fileTree: tree,
+          }));
+        } else {
+          get().pushLog(
+            'warn',
+            `Previous project folder is unavailable (moved or deleted):\n${session.projectRoot}`,
+          );
+          set({
+            recentProjectRoots: initialRecents.filter((p) => p !== session.projectRoot),
+            projectRoot: null,
+            fileTree: null,
+          });
         }
+      } else {
+        set({ recentProjectRoots: initialRecents });
       }
 
       // Restore tabs
@@ -511,6 +590,7 @@ export const useApp = create<AppState>((set) => ({
 
       await window.api.session.save({
         projectRoot: state.projectRoot,
+        recentProjectRoots: state.recentProjectRoots,
         tabs: tabStates,
         activeTabPath: state.activeTabPath,
         sidebarCollapsed: state.sidebarCollapsed,
@@ -596,4 +676,13 @@ export const useApp = create<AppState>((set) => ({
   // helpers for session restore
   setTabs: (tabs) => set({ tabs }),
   setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
+  reorderTabs: (fromIndex, toIndex) =>
+    set((s) => {
+      if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return s;
+      if (fromIndex >= s.tabs.length || toIndex >= s.tabs.length) return s;
+      const next = [...s.tabs];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved!);
+      return { tabs: next };
+    }),
 }));

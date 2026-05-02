@@ -1,6 +1,6 @@
 {
   "name": "router-studio",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "One workspace for every AI model",
   "main": "out/main/main.js",
   "author": "Router Studio",
@@ -79,11 +79,11 @@
       "perMachine": false
     },
     "win": {
-      "target": "nsis",
+      "target": ["nsis", "zip"],
       "icon": "resources/icon.png"
     },
     "mac": {
-      "target": "dmg",
+      "target": ["dmg", "zip"],
       "category": "public.app-category.developer-tools",
       "icon": "resources/icon.png"
     },

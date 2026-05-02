@@ -3,6 +3,22 @@ import { useApp } from '../store/appStore';
 import { useTasks } from '../store/tasksStore';
 import type { AgentTask, AgentTaskStatus } from '../../shared/types';
 import logoIcon from '../assets/logo-icon.png';
+import { toast } from './ToastContainer';
+
+function tasksToMermaid(taskList: AgentTask[]): string {
+  const esc = (s: string) => s.replace(/"/g, "'");
+  const idOf = (raw: string) => `t_${raw.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+  const lines = ['flowchart TD'];
+  for (const t of taskList) {
+    lines.push(`  ${idOf(t.id)}["${esc(t.title)}"]`);
+  }
+  for (const t of taskList) {
+    if (t.parentTaskId) {
+      lines.push(`  ${idOf(t.parentTaskId)} --> ${idOf(t.id)}`);
+    }
+  }
+  return lines.join('\n');
+}
 
 /**
  * Saved-tasks browser. Each row is a task persisted in userData/tasks/ — we
@@ -27,6 +43,24 @@ export default function TasksModal() {
     if (!show) return;
     void refresh();
   }, [show, refresh]);
+
+  const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t] as const)), [tasks]);
+
+  const taskDepth = useMemo(() => {
+    const memo = new Map<string, number>();
+    const depth = (t: AgentTask): number => {
+      if (memo.has(t.id)) return memo.get(t.id)!;
+      if (!t.parentTaskId) {
+        memo.set(t.id, 0);
+        return 0;
+      }
+      const p = taskById.get(t.parentTaskId);
+      const d = p ? 1 + depth(p) : 0;
+      memo.set(t.id, d);
+      return d;
+    };
+    return (t: AgentTask) => depth(t);
+  }, [taskById]);
 
   const visible = useMemo(() => {
     if (filter === 'all') return tasks;
@@ -115,12 +149,18 @@ export default function TasksModal() {
                 <button
                   key={t.id}
                   onClick={() => setSelectedId(t.id)}
+                  style={{ paddingLeft: 12 + taskDepth(t) * 14 }}
                   className={
-                    'block w-full border-b border-border-soft px-3 py-2 text-left hover:bg-bg-hover ' +
+                    'block w-full border-b border-border-soft py-2 pr-3 text-left hover:bg-bg-hover ' +
                     (selectedId === t.id ? 'bg-bg-hover' : '')
                   }
                 >
                   <div className="flex items-center gap-2">
+                    {taskDepth(t) > 0 ? (
+                      <span className="shrink-0 text-[10px] text-fg-muted" aria-hidden>
+                        ↳
+                      </span>
+                    ) : null}
                     <StatusDot status={t.status} />
                     <div className="truncate text-[13px] font-medium text-fg">{t.title}</div>
                   </div>
@@ -159,6 +199,12 @@ export default function TasksModal() {
                   <div className="mt-1 text-[11px] text-fg-muted">
                     {selected.modelUsed} · {selected.iterations}/{selected.maxIterations} iter · updated{' '}
                     {new Date(selected.updatedAt).toLocaleString()}
+                    {selected.parentTaskId ? (
+                      <>
+                        {' '}
+                        · sub-task of <span className="font-mono text-fg">{selected.parentTaskId}</span>
+                      </>
+                    ) : null}
                   </div>
                   {selected.lastError && (
                     <div className="mt-1 text-[11px] text-danger">Error: {selected.lastError}</div>
@@ -179,6 +225,27 @@ export default function TasksModal() {
                     className="rounded border border-danger/40 px-2 py-1 text-xs text-danger hover:bg-danger/10"
                   >
                     Delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(JSON.stringify(selected, null, 2));
+                      toast.success('Copied task JSON');
+                    }}
+                    className="rounded border border-border px-2 py-1 text-xs text-fg-muted hover:bg-bg-hover"
+                  >
+                    Export JSON
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const mm = tasksToMermaid(tasks);
+                      void navigator.clipboard.writeText(mm);
+                      toast.success('Copied Mermaid DAG');
+                    }}
+                    className="rounded border border-border px-2 py-1 text-xs text-fg-muted hover:bg-bg-hover"
+                  >
+                    DAG (Mermaid)
                   </button>
                 </div>
               </div>
