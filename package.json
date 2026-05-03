@@ -29,7 +29,6 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
-    "website:serve": "npx --yes serve website -l 4173",
     "verify-server": "node server/email-verify/server.mjs",
     "postinstall": "node scripts/ensure-native-toolchain.mjs"
   },

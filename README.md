@@ -7,7 +7,9 @@
 
 Router Studio is a **desktop IDE** (Electron) for coding with [**OpenRouter**](https://openrouter.ai/)—pick any catalog model, attach repo context, and iterate with chat and agent-style workflows. Your OpenRouter key stays **on device**; the app does not ship first-party telemetry.
 
-**Repository:** [github.com/mfk0402/router-studio](https://github.com/mfk0402/router-studio) · **Issues:** [github.com/mfk0402/router-studio/issues](https://github.com/mfk0402/router-studio/issues)
+**Repository:** [github.com/mfk0402/router-studio](https://github.com/mfk0402/router-studio) · **Issues:** [github.com/mfk0402/router-studio/issues](https://github.com/mfk0402/router-studio/issues) · **Releases:** [github.com/mfk0402/router-studio/releases](https://github.com/mfk0402/router-studio/releases)
+
+This repo is **the open-source app itself**—Electron + React source, build scripts, and docs in-tree. There is no separate marketing website in the project; ship installers via **Releases** when you publish builds, and point newcomers at this README plus [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 
@@ -131,20 +133,7 @@ src/
 ├── preload/        contextBridge API
 ├── renderer/       React UI (Monaco, panels, stores)
 └── shared/         Shared TypeScript types & URLs
-website/            Static marketing site (`npm run website:serve`)
 ```
-
----
-
-## Marketing site
-
-Static pages live under [`website/`](website/README.md). Preview locally:
-
-```bash
-npm run website:serve
-```
-
-Before publishing (e.g. GitHub Pages), point Open Graph / canonical URLs in `website/index.html` at your public domain if needed.
 
 ---
 
