@@ -23,7 +23,7 @@ export {
   type OfflineQueuedCompletion,
 };
 
-const MODEL_CACHE_KEY = 'routerstudio.models.cache.v2';
+const MODEL_CACHE_KEY = 'routerstudio.models.cache.v3';
 const MODEL_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6h
 
 /** OpenRouter's "free router" pseudo-model. */

@@ -132,8 +132,9 @@ function ToastItem({ toast: t, onClose }: { toast: Toast; onClose: () => void })
         {t.message && <div className="mt-1 text-sm text-fg-muted">{t.message}</div>}
         {t.action && (
           <button
+            type="button"
             onClick={t.action.onClick}
-            className="mt-2 text-sm font-medium text-accent hover:underline"
+            className="mt-2 rounded-md border border-accent/40 bg-accent/10 px-2.5 py-1 text-sm font-medium text-accent hover:bg-accent/20"
           >
             {t.action.label}
           </button>

@@ -3,6 +3,8 @@ import { useApp } from '../store/appStore';
 import { useSettings } from '../store/settingsStore';
 import { useTools } from '../store/toolsStore';
 import { fetchModels, offlineQueueLength, clearOfflineQueue, retryOfflineQueue } from '../lib/openrouterClient';
+import { markUserInitiatedUpdateCheck } from '../lib/updateCheckFlow';
+import { toast } from './ToastContainer';
 import logoIcon from '../assets/logo-icon.png';
 
 export default function SettingsModal() {
@@ -847,6 +849,40 @@ export default function SettingsModal() {
               className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[11px]"
               placeholder='[{"id":"1","title":"Standup","intervalMinutes":60,"prompt":"Review blockers","lastRunAt":null,"enabled":true}]'
             />
+          </section>
+
+          <section className="rounded-md border border-border-soft bg-bg-soft p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+              Updates
+            </div>
+            <label className="mb-2 flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={settings.autoUpdateEnabled}
+                onChange={(e) => void update({ autoUpdateEnabled: e.target.checked })}
+                className="rounded border-border"
+              />
+              Check for updates when the app starts
+            </label>
+            <p className="mb-3 text-[10px] text-fg-subtle">
+              Packaged installs only. When your release feed has a newer build, a toast appears with
+              an <span className="font-medium text-fg-muted">Update now</span> button (configure{' '}
+              <code className="text-[10px]">ROUTER_STUDIO_UPDATES_URL</code> for a generic feed, or
+              use your GitHub Releases / electron-builder publish output).
+            </p>
+            <button
+              type="button"
+              className="rounded-md border border-border bg-bg px-3 py-1.5 text-sm hover:bg-bg-hover"
+              onClick={() => {
+                markUserInitiatedUpdateCheck();
+                void window.api.updates.check().then((res) => {
+                  if (res.started) toast.info('Checking for updates…');
+                  else if (res.message) toast.info(res.message);
+                });
+              }}
+            >
+              Check for updates now
+            </button>
           </section>
 
           <section>

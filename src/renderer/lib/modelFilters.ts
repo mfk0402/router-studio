@@ -155,16 +155,18 @@ export function normalizeModel(raw: OpenRouterModelRaw): NormalizedModel {
 }
 
 function detectPriceTier(avgPricePerM: number, isFree: boolean): PriceTier {
-  if (isFree || avgPricePerM === 0) return 'free';
+  if (isFree || !Number.isFinite(avgPricePerM) || avgPricePerM <= 0) return 'free';
   if (avgPricePerM < 0.5) return 'cheap';
   if (avgPricePerM < 5) return 'mid';
   return 'premium';
 }
 
+/** OpenRouter sometimes sends negative sentinel values (e.g. -1 per token) for variable / router pricing. */
 function parsePrice(v: string | undefined): number {
   if (v === undefined || v === null) return 0;
   const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
 }
 
 function detectCategories(args: {
@@ -339,7 +341,7 @@ export function priceRange(
   let anyFree = false;
   for (const m of pool) {
     if (m.isFree) anyFree = true;
-    if (m.avgPricePerM === 0) continue;
+    if (!Number.isFinite(m.avgPricePerM) || m.avgPricePerM <= 0) continue;
     if (m.avgPricePerM < min) min = m.avgPricePerM;
     if (m.avgPricePerM > max) max = m.avgPricePerM;
   }
@@ -348,7 +350,7 @@ export function priceRange(
 }
 
 export function formatPrice(v: number): string {
-  if (v === 0) return 'free';
+  if (!Number.isFinite(v) || v <= 0) return 'free';
   if (v < 0.0000001) return v.toExponential(1);
   const perMil = v * 1_000_000;
   if (perMil >= 1) return `$${perMil.toFixed(2)}/M`;
@@ -356,7 +358,7 @@ export function formatPrice(v: number): string {
 }
 
 export function formatPricePerM(perM: number): string {
-  if (perM === 0) return 'free';
+  if (!Number.isFinite(perM) || perM <= 0) return 'free';
   if (perM >= 100) return `$${perM.toFixed(0)}/M`;
   if (perM >= 1) return `$${perM.toFixed(2)}/M`;
   return `$${perM.toFixed(3)}/M`;

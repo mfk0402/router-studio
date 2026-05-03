@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy — Router Studio</title>
+    <meta
+      name="description"
+      content="How Router Studio handles your API key, project files, and data — local-first desktop app."
+    />
+    <link rel="stylesheet" href="../styles.css" />
+    <link rel="icon" href="../assets/logo-icon.png" type="image/png" />
+  </head>
+  <body>
+    <div class="page-wrap legal-page">
+      <nav class="doc-nav">
+        <a href="../index.html" class="doc-nav__back">← Router Studio</a>
+        <a href="third-parties.html" class="doc-nav__link">Third-party services</a>
+      </nav>
+      <article class="legal-prose">
+        <h1>Privacy</h1>
+        <p class="legal-lead">
+          Router Studio is a desktop application. This page summarizes how the product treats your data. For
+          implementation details, see the
+          <a href="https://github.com/mfk0402/router-studio/blob/main/README.md#privacy" target="_blank" rel="noopener noreferrer"
+            >Privacy section in the project README</a
+          >.
+        </p>
+
+        <h2>Local storage</h2>
+        <p>
+          Your OpenRouter API key and settings are stored on your computer. When the OS supports it, Electron’s
+          <code>safeStorage</code> encrypts secrets with the platform keychain (macOS Keychain, Windows DPAPI, Linux
+          libsecret where available).
+        </p>
+
+        <h2>What leaves your device</h2>
+        <p>
+          Code and context are sent to <strong>OpenRouter</strong> only when you explicitly use AI features (for
+          example sending a chat message with project context). Routine file edits and local tooling do not upload your
+          repository by default.
+        </p>
+
+        <h2>No telemetry</h2>
+        <p>
+          The app does not include analytics or a first-party cloud database. Third-party model providers (via
+          OpenRouter) receive only the prompts and attachments you send as part of a request.
+        </p>
+
+        <h2>Optional account vault</h2>
+        <p>
+          If you use Router Studio’s optional local account feature, an encrypted vault may hold settings backups on
+          disk. That vault is encrypted with your password and is not uploaded to Router Studio servers — there is no
+          Router Studio-hosted account backend in the open-source distribution.
+        </p>
+        <p>
+          Some packaged builds enable <strong>email verification</strong> during registration: the app then contacts a
+          verify URL you or your distributor configure (<code>ROUTER_STUDIO_VERIFY_URL</code>), which sends a one-time
+          code. Only the email address is sent to that service for that purpose — not your OpenRouter key or vault
+          contents. See the
+          <a
+            href="https://github.com/mfk0402/router-studio/blob/main/server/email-verify/README.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            >reference verify server</a
+          >.
+        </p>
+
+        <h2>Contact</h2>
+        <p>
+          Questions and reports:
+          <a href="https://github.com/mfk0402/router-studio/issues" target="_blank" rel="noopener noreferrer"
+            >GitHub Issues</a
+          >.
+        </p>
+
+        <p class="legal-meta">
+          <a href="https://github.com/mfk0402/router-studio/blob/main/LICENSE" target="_blank" rel="noopener noreferrer"
+            >MIT License</a
+          >
+          · Router Studio contributors
+        </p>
+      </article>
+      <footer class="footer footer--compact">
+        <p><a href="../index.html">Home</a> · <a href="third-parties.html">Third parties</a></p>
+      </footer>
+    </div>
+    <script>
+      (function () {
+        var t = localStorage.getItem('rs-site-theme');
+        var dark;
+        if (t === 'light' || t === 'dark') dark = t === 'dark';
+        else dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.classList.toggle('dark', dark);
+        document.documentElement.classList.toggle('light', !dark);
+      })();
+    </script>
+  </body>
+</html>

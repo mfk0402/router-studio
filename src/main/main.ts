@@ -54,7 +54,8 @@ if (!gotLock) {
       },
     });
 
-    win.on('ready-to-show', () => {
+    win.webContents.once('did-finish-load', () => {
+      if (win.isDestroyed()) return;
       win.show();
       win.focus();
     });

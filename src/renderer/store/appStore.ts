@@ -133,6 +133,8 @@ interface AppState {
   setShowUsageStats: (v: boolean) => void;
   showBenchmark: boolean;
   setShowBenchmark: (v: boolean) => void;
+  showAccountModal: boolean;
+  setShowAccountModal: (v: boolean) => void;
 
   /** Increment to re-open the welcome tour (Help menu). */
   welcomeTourNonce: number;
@@ -453,6 +455,8 @@ export const useApp = create<AppState>((set, get) => ({
   setShowUsageStats: (v) => set({ showUsageStats: v }),
   showBenchmark: false,
   setShowBenchmark: (v) => set({ showBenchmark: v }),
+  showAccountModal: false,
+  setShowAccountModal: (v) => set({ showAccountModal: v }),
 
   welcomeTourNonce: 0,
   triggerWelcomeTour: () => {

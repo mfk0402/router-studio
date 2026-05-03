@@ -131,6 +131,17 @@ export async function readFile(relativePath: string): Promise<string> {
   return fs.readFile(abs, 'utf8');
 }
 
+/** Like readFile, but returns null if the file is missing (ENOENT). Other errors still throw. */
+export async function readFileIfExists(relativePath: string): Promise<string | null> {
+  const abs = resolveSafe(relativePath);
+  try {
+    return await fs.readFile(abs, 'utf8');
+  } catch (e: unknown) {
+    if ((e as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
 export async function writeFile(relativePath: string, content: string): Promise<void> {
   const abs = resolveSafe(relativePath);
   await fs.mkdir(path.dirname(abs), { recursive: true });

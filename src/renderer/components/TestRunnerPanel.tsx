@@ -69,62 +69,51 @@ export default function TestRunnerPanel() {
       if (!projectRoot) return;
 
       try {
-        try {
-          const pkgContent = await window.api.fs.readFile('package.json');
-          const pkg = JSON.parse(pkgContent) as {
-            dependencies?: Record<string, string>;
-            devDependencies?: Record<string, string>;
-          };
-          const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+        const pkgContent = await window.api.fs.readFileIfExists('package.json');
+        if (pkgContent) {
+          try {
+            const pkg = JSON.parse(pkgContent) as {
+              dependencies?: Record<string, string>;
+              devDependencies?: Record<string, string>;
+            };
+            const deps = { ...pkg.dependencies, ...pkg.devDependencies };
 
-          if (deps['vitest']) {
-            setDetectedFramework('vitest');
-            return;
+            if (deps['vitest']) {
+              setDetectedFramework('vitest');
+              return;
+            }
+            if (deps['jest']) {
+              setDetectedFramework('jest');
+              return;
+            }
+            if (deps['mocha']) {
+              setDetectedFramework('mocha');
+              return;
+            }
+          } catch {
+            // invalid package.json
           }
-          if (deps['jest']) {
-            setDetectedFramework('jest');
-            return;
-          }
-          if (deps['mocha']) {
-            setDetectedFramework('mocha');
-            return;
-          }
-        } catch {
-          // no or invalid package.json
         }
 
-        try {
-          await window.api.fs.readFile('pytest.ini');
+        if (await window.api.fs.readFileIfExists('pytest.ini')) {
           setDetectedFramework('pytest');
           return;
-        } catch {
-          // —
         }
 
-        try {
-          const setupCfg = await window.api.fs.readFile('setup.cfg');
-          if (setupCfg.includes('[pytest]')) {
-            setDetectedFramework('pytest');
-            return;
-          }
-        } catch {
-          // —
+        const setupCfg = await window.api.fs.readFileIfExists('setup.cfg');
+        if (setupCfg?.includes('[pytest]')) {
+          setDetectedFramework('pytest');
+          return;
         }
 
-        try {
-          await window.api.fs.readFile('Cargo.toml');
+        if (await window.api.fs.readFileIfExists('Cargo.toml')) {
           setDetectedFramework('cargo');
           return;
-        } catch {
-          // —
         }
 
-        try {
-          await window.api.fs.readFile('go.mod');
+        if (await window.api.fs.readFileIfExists('go.mod')) {
           setDetectedFramework('go');
           return;
-        } catch {
-          // —
         }
       } catch {
         // Ignore errors

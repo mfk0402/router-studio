@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Third-party services — Router Studio</title>
+    <meta
+      name="description"
+      content="Services Router Studio integrates with: OpenRouter and optional update infrastructure."
+    />
+    <link rel="stylesheet" href="../styles.css" />
+    <link rel="icon" href="../assets/logo-icon.png" type="image/png" />
+  </head>
+  <body>
+    <div class="page-wrap legal-page">
+      <nav class="doc-nav">
+        <a href="../index.html" class="doc-nav__back">← Router Studio</a>
+        <a href="privacy.html" class="doc-nav__link">Privacy</a>
+      </nav>
+      <article class="legal-prose">
+        <h1>Third-party services</h1>
+        <p class="legal-lead">
+          Router Studio is <strong>not affiliated with OpenRouter</strong>. You bring your own API key and are subject
+          to their terms and pricing.
+        </p>
+
+        <h2>OpenRouter</h2>
+        <p>
+          AI requests are sent to models through
+          <a href="https://openrouter.ai" target="_blank" rel="noopener noreferrer">OpenRouter</a> when you configure an
+          API key. Review OpenRouter’s policies and model cards before sending sensitive code or data.
+        </p>
+        <ul>
+          <li><a href="https://openrouter.ai/docs" target="_blank" rel="noopener noreferrer">OpenRouter documentation</a></li>
+          <li><a href="https://openrouter.ai/privacy" target="_blank" rel="noopener noreferrer">OpenRouter privacy</a></li>
+        </ul>
+
+        <h2>Software updates (desktop builds)</h2>
+        <p>
+          Packaged releases may use <code>electron-updater</code> to check for newer versions from your release
+          host (for example GitHub Releases). That check uses the update metadata you configure at build time — review
+          the Electron Builder / publisher documentation for your distribution.
+        </p>
+
+        <h2>Fonts (this website)</h2>
+        <p>
+          Marketing pages may load <strong>Inter</strong> and <strong>JetBrains Mono</strong> from Google Fonts when
+          viewed in a browser. Self-host fonts if your deployment policy requires it.
+        </p>
+
+        <p class="legal-meta">
+          <a href="../index.html">Home</a> ·
+          <a href="https://github.com/mfk0402/router-studio" target="_blank" rel="noopener noreferrer">Source</a>
+        </p>
+      </article>
+      <footer class="footer footer--compact">
+        <p><a href="../index.html">Home</a> · <a href="privacy.html">Privacy</a></p>
+      </footer>
+    </div>
+    <script>
+      (function () {
+        var t = localStorage.getItem('rs-site-theme');
+        var dark;
+        if (t === 'light' || t === 'dark') dark = t === 'dark';
+        else dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.classList.toggle('dark', dark);
+        document.documentElement.classList.toggle('light', !dark);
+      })();
+    </script>
+  </body>
+</html>

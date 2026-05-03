@@ -21,21 +21,26 @@ import WelcomeTour from './components/WelcomeTour';
 import RoadmapModal from './components/RoadmapModal';
 import StatsModal from './components/StatsModal';
 import BenchmarkModal from './components/BenchmarkModal';
+import AccountModal from './components/AccountModal';
 import WelcomePane from './components/WelcomePane';
 import { toast } from './components/ToastContainer';
 import { useApp } from './store/appStore';
 import { useSettings } from './store/settingsStore';
 import { useRules } from './store/rulesStore';
 import { useTasks } from './store/tasksStore';
+import { useAccountSession } from './store/accountSessionStore';
 import { useTools, setupToolEventListeners } from './store/toolsStore';
 import { loadCachedModels, fetchModels } from './lib/openrouterClient';
+import { consumeUserInitiatedUpdateCheck } from './lib/updateCheckFlow';
 import { useResolvedTheme } from './hooks/useResolvedTheme';
+import { useSplashDismiss } from './hooks/useSplashDismiss';
 import logoIcon from './assets/logo-icon.png';
 
 const SESSION_SAVE_INTERVAL = 30000; // 30 seconds
 const AUTOSAVE_DEBOUNCE = 2000; // 2 seconds after last edit
 
 export default function App() {
+  useSplashDismiss();
   // Hard guard: if the preload didn't load, window.api is undefined and every
   // button in the app silently fails. Show a visible banner instead.
   if (typeof window.api === 'undefined') {
@@ -114,6 +119,7 @@ function AppInner() {
 
   const autosaveTimerRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const sessionInitializedRef = useRef(false);
+  const autoUpdateCheckStartedRef = useRef(false);
 
   // Initialize session on mount
   useEffect(() => {
@@ -177,36 +183,80 @@ function AppInner() {
     };
   }, [tabs, autosaveEnabled, autosaveFile]);
 
+  const refreshAccountSession = useAccountSession((s) => s.refresh);
+
   useEffect(() => {
     void loadSettings();
     void refreshRules();
     void refreshTasks();
     void loadToolDefinitions();
+    void refreshAccountSession();
     const cleanup = setupToolEventListeners();
     return cleanup;
-  }, [loadSettings, refreshRules, refreshTasks, loadToolDefinitions]);
+  }, [loadSettings, refreshRules, refreshTasks, loadToolDefinitions, refreshAccountSession]);
 
   useEffect(() => {
     const unsub = window.api.events.onUpdates((ev) => {
       switch (ev.kind) {
-        case 'available':
-          toast.success(`Update v${ev.version} available`, 'Downloading…');
-          void window.api.updates.download().then((r) => {
-            if (!r.ok && r.message) toast.error(`Update download failed: ${r.message}`);
+        case 'checking':
+          break;
+        case 'available': {
+          consumeUserInitiatedUpdateCheck();
+          const raw = ev.releaseNotes?.trim();
+          const message =
+            raw && raw.length > 0
+              ? raw.length > 200
+                ? `${raw.slice(0, 200)}…`
+                : raw
+              : 'A newer build is available from your update feed.';
+          toast.success(`Update v${ev.version} available`, message, {
+            duration: 0,
+            action: {
+              label: 'Update now',
+              onClick: () => {
+                void window.api.updates.download().then((r) => {
+                  if (!r.ok && r.message) {
+                    toast.error('Download failed', r.message);
+                    return;
+                  }
+                  toast.info(
+                    'Downloading update…',
+                    'You can keep working. We will notify you when it is ready to install.',
+                  );
+                });
+              },
+            },
           });
           break;
+        }
         case 'not-available':
-          toast.info('You are on the latest version.');
+          if (consumeUserInitiatedUpdateCheck()) {
+            toast.info('You are on the latest version.');
+          }
           break;
-        case 'error':
-          toast.error(ev.message);
+        case 'error': {
+          const userAsked = consumeUserInitiatedUpdateCheck();
+          if (userAsked) {
+            toast.error('Update check failed', ev.message);
+          } else {
+            toast.warning('Could not check for updates', ev.message, { duration: 8000 });
+          }
+          break;
+        }
+        case 'download-progress':
           break;
         case 'downloaded':
-          if (
-            window.confirm(`Update v${ev.version} is ready. Restart now to install?`)
-          ) {
-            void window.api.updates.quitAndInstall();
-          }
+          toast.success(
+            `Update v${ev.version} ready to install`,
+            'Restart Router Studio to finish updating.',
+            {
+              duration: 0,
+              action: {
+                label: 'Restart now',
+                onClick: () => void window.api.updates.quitAndInstall(),
+              },
+            },
+          );
           break;
         default:
           break;
@@ -214,6 +264,13 @@ function AppInner() {
     });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    if (!loadedSettings || !settings.autoUpdateEnabled) return;
+    if (autoUpdateCheckStartedRef.current) return;
+    autoUpdateCheckStartedRef.current = true;
+    void window.api.updates.check();
+  }, [loadedSettings, settings.autoUpdateEnabled]);
 
   useEffect(() => {
     const offWebhook = window.api.events.onWebhook((p) => {
@@ -276,6 +333,18 @@ function AppInner() {
     if (!zenMode) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        void useSettings.getState().update({ zenMode: false });
+        return;
+      }
+      // Avoid Ctrl+Shift+Z (editor redo). Alt+Shift+Z exits zen only.
+      if (
+        e.altKey &&
+        e.shiftKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        e.key.toLowerCase() === 'z'
+      ) {
+        e.preventDefault();
         void useSettings.getState().update({ zenMode: false });
       }
     };
@@ -362,6 +431,7 @@ function AppInner() {
         'flex h-full w-full flex-col bg-bg text-fg' + (zenMode ? ' zen-mode' : '')
       }
     >
+      {zenMode && <ZenModeExitBar />}
       {!zenMode && <MenuBar />}
       {!zenMode && <TopBar />}
       <div className="flex min-h-0 flex-1">
@@ -404,6 +474,7 @@ function AppInner() {
       <RoadmapModal />
       <StatsModal />
       <BenchmarkModal />
+      <AccountModal />
       <SettingsModal />
       <ModelPicker />
       <QuickOpen />
@@ -421,12 +492,43 @@ function AppInner() {
   );
 }
 
+function ZenModeExitBar() {
+  const exitZen = useCallback(() => {
+    void useSettings.getState().update({ zenMode: false });
+  }, []);
+
+  return (
+    <div
+      className="flex h-9 shrink-0 items-center justify-center gap-3 border-b border-border-soft bg-bg-elevated/95 backdrop-blur-sm"
+      role="region"
+      aria-label="Zen mode controls"
+    >
+      <button
+        type="button"
+        className="rounded-md px-3 py-1.5 text-sm font-medium text-fg ring-1 ring-border-soft transition-colors hover:bg-bg-hover"
+        onClick={exitZen}
+      >
+        Exit zen mode
+      </button>
+      <span className="hidden text-xs text-fg-muted sm:inline">
+        <kbd className="rounded border border-border-soft bg-bg-soft px-1 font-sans">Esc</kbd>
+        <span className="mx-1 opacity-70">·</span>
+        <kbd className="rounded border border-border-soft bg-bg-soft px-1 font-sans">
+          Alt+Shift+Z
+        </kbd>
+      </span>
+    </div>
+  );
+}
+
 function TopBar() {
   const projectRoot = useApp((s) => s.projectRoot);
   const pickAndOpenProjectFolder = useApp((s) => s.pickAndOpenProjectFolder);
   const setShowSettings = useApp((s) => s.setShowSettings);
   const setShowModelPicker = useApp((s) => s.setShowModelPicker);
+  const setShowAccountModal = useApp((s) => s.setShowAccountModal);
   const toggleSidebar = useApp((s) => s.toggleSidebar);
+  const accountEmail = useAccountSession((s) => s.email);
 
   const openFolder = () => {
     void pickAndOpenProjectFolder();
@@ -477,6 +579,20 @@ function TopBar() {
           title="Choose model (Ctrl/Cmd+M)"
         >
           Models
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-border-soft bg-bg-soft px-2.5 py-1.5 text-xs font-medium text-fg-muted shadow-sm transition-colors duration-layout hover:border-border hover:bg-bg-hover hover:text-fg"
+          onClick={() => setShowAccountModal(true)}
+          title="Router Studio account — sign in to sync encrypted settings"
+        >
+          {accountEmail ? (
+            <span className="max-w-[9rem] truncate font-mono text-[10px]" title={accountEmail}>
+              {accountEmail}
+            </span>
+          ) : (
+            'Account'
+          )}
         </button>
         <button
           type="button"

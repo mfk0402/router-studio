@@ -29,12 +29,27 @@ const api: IpcApi = {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (partial: Partial<AppSettings>) => ipcRenderer.invoke('settings:set', partial),
   },
+  auth: {
+    registrationPolicy: () => ipcRenderer.invoke('auth:registrationPolicy'),
+    requestRegistrationCode: (email: string) =>
+      ipcRenderer.invoke('auth:requestRegistrationCode', email),
+    verifyRegistrationCode: (email: string, code: string) =>
+      ipcRenderer.invoke('auth:verifyRegistrationCode', email, code),
+    register: (email: string, password: string, registrationToken?: string) =>
+      ipcRenderer.invoke('auth:register', email, password, registrationToken),
+    login: (email: string, password: string) => ipcRenderer.invoke('auth:login', email, password),
+    logout: () => ipcRenderer.invoke('auth:logout'),
+    session: () => ipcRenderer.invoke('auth:session'),
+    syncVault: () => ipcRenderer.invoke('auth:syncVault'),
+    listAccounts: () => ipcRenderer.invoke('auth:listAccounts'),
+  },
   fs: {
     openFolder: () => ipcRenderer.invoke('fs:openFolder'),
     setRoot: (root) => ipcRenderer.invoke('fs:setRoot', root),
     getRoot: () => ipcRenderer.invoke('fs:getRoot'),
     listFiles: () => ipcRenderer.invoke('fs:listFiles'),
     readFile: (rel) => ipcRenderer.invoke('fs:readFile', rel),
+    readFileIfExists: (rel) => ipcRenderer.invoke('fs:readFileIfExists', rel),
     writeFile: (rel, content) => ipcRenderer.invoke('fs:writeFile', rel, content),
     createFile: (rel, content) => ipcRenderer.invoke('fs:createFile', rel, content),
     deleteFile: (rel) => ipcRenderer.invoke('fs:deleteFile', rel),

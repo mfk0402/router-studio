@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/appStore';
+import { GITHUB_ISSUES_URL, GITHUB_README_URL } from '../../shared/projectUrls';
 import { useSettings } from '../store/settingsStore';
+import { markUserInitiatedUpdateCheck } from '../lib/updateCheckFlow';
 import { toast } from './ToastContainer';
 import logoIcon from '../assets/logo-icon.png';
 
@@ -29,6 +31,7 @@ export default function MenuBar() {
   const setShowUsageStats = useApp((s) => s.setShowUsageStats);
 
   const setShowSettings = useApp((s) => s.setShowSettings);
+  const setShowAccountModal = useApp((s) => s.setShowAccountModal);
   const setShowModelPicker = useApp((s) => s.setShowModelPicker);
   const setShowRules = useApp((s) => s.setShowRules);
   const setShowTasks = useApp((s) => s.setShowTasks);
@@ -106,6 +109,13 @@ export default function MenuBar() {
           },
         },
         { divider: true, label: '' },
+        {
+          label: 'Router Studio account…',
+          action: () => {
+            setShowAccountModal(true);
+            setOpenMenu(null);
+          },
+        },
         {
           label: 'Settings',
           shortcut: 'Ctrl+,',
@@ -341,6 +351,7 @@ export default function MenuBar() {
           label: 'Check for Updates…',
           action: async () => {
             setOpenMenu(null);
+            markUserInitiatedUpdateCheck();
             const res = await window.api.updates.check();
             if (res.started) toast.info('Checking for updates…');
             else if (res.message) toast.info(res.message);
@@ -350,14 +361,14 @@ export default function MenuBar() {
         {
           label: 'Documentation',
           action: () => {
-            window.open('https://github.com/router-studio/docs', '_blank');
+            window.open(GITHUB_README_URL, '_blank', 'noopener,noreferrer');
             setOpenMenu(null);
           },
         },
         {
           label: 'Report Issue',
           action: () => {
-            window.open('https://github.com/router-studio/issues', '_blank');
+            window.open(GITHUB_ISSUES_URL, '_blank', 'noopener,noreferrer');
             setOpenMenu(null);
           },
         },

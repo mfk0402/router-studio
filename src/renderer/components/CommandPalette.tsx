@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/appStore';
 import { useSettings } from '../store/settingsStore';
 import { toast } from './ToastContainer';
+import { markUserInitiatedUpdateCheck } from '../lib/updateCheckFlow';
 
 interface Command {
   id: string;
@@ -23,6 +24,7 @@ export default function CommandPalette() {
   const setShowRoadmap = useApp((s) => s.setShowRoadmap);
   const setShowUsageStats = useApp((s) => s.setShowUsageStats);
   const setShowBenchmark = useApp((s) => s.setShowBenchmark);
+  const setShowAccountModal = useApp((s) => s.setShowAccountModal);
   const clearChat = useApp((s) => s.clearChat);
   const fileTree = useApp((s) => s.fileTree);
   const tabs = useApp((s) => s.tabs);
@@ -105,12 +107,33 @@ export default function CommandPalette() {
         },
       },
       {
+        id: 'view:account',
+        label: 'Router Studio account (sign in)',
+        category: 'view',
+        keywords: ['account', 'login', 'register', 'email', 'password', 'vault', 'sync'],
+        action: () => {
+          setShowAccountModal(true);
+          setShowCommandPalette(false);
+        },
+      },
+      {
         id: 'view:modelPicker',
         label: 'Select AI Model',
         category: 'view',
         shortcut: 'Ctrl+M',
         action: () => {
           setShowModelPicker(true);
+          setShowCommandPalette(false);
+        },
+      },
+      {
+        id: 'view:zenToggle',
+        label: settings.zenMode ? 'Exit Zen Mode' : 'Enter Zen Mode',
+        category: 'view',
+        keywords: ['zen', 'distraction', 'focus', 'minimal', 'fullscreen', 'hide'],
+        shortcut: settings.zenMode ? 'Esc' : undefined,
+        action: async () => {
+          await useSettings.getState().update({ zenMode: !settings.zenMode });
           setShowCommandPalette(false);
         },
       },
@@ -171,6 +194,7 @@ export default function CommandPalette() {
         keywords: ['updater', 'update', 'upgrade', 'version'],
         action: async () => {
           setShowCommandPalette(false);
+          markUserInitiatedUpdateCheck();
           const res = await window.api.updates.check();
           if (res.started) toast.info('Checking for updates…');
           else if (res.message) toast.info(res.message);
@@ -247,6 +271,7 @@ export default function CommandPalette() {
     setShowRoadmap,
     setShowUsageStats,
     setShowBenchmark,
+    setShowAccountModal,
     clearChat,
     setFreeMode,
     setActiveTab,

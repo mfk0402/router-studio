@@ -241,6 +241,11 @@ export interface AppSettings {
   hasCompletedProductTour: boolean;
   /** User-defined editor snippets (prefix → completion body). */
   userSnippets: UserSnippet[];
+  /**
+   * When true, packaged builds check GitHub/generic update feed on launch and
+   * show a toast with “Update now” when a newer version exists.
+   */
+  autoUpdateEnabled: boolean;
   /** Distraction-free UI: hide side AI chat and minimize chrome. */
   zenMode: boolean;
   /** Show two editor panes side-by-side (same shortcuts; focused pane follows last click). */
@@ -314,6 +319,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   customActions: [],
   hasCompletedProductTour: false,
   userSnippets: [],
+  autoUpdateEnabled: true,
   zenMode: false,
   editorSplit: false,
   webhookListenerEnabled: false,
@@ -611,6 +617,17 @@ export type GitCloneResult =
   | { ok: true; projectPath: string }
   | { ok: false; error: string };
 
+/** Local email/password account (encrypted vault on disk — no cloud). */
+export type AuthSessionInfo = { loggedIn: false } | { loggedIn: true; email: string };
+
+export type AuthSyncResult = { ok: true } | { ok: false; error: string };
+
+/** Whether registration requires the email verification server (see ROUTER_STUDIO_VERIFY_URL). */
+export type RegistrationPolicyInfo = {
+  needsVerification: boolean;
+  hint?: string;
+};
+
 export interface IpcApi {
   secureStore: {
     get: (key: string) => Promise<string | null>;
@@ -621,12 +638,39 @@ export interface IpcApi {
     get: () => Promise<AppSettings>;
     set: (settings: Partial<AppSettings>) => Promise<AppSettings>;
   };
+  auth: {
+    registrationPolicy: () => Promise<RegistrationPolicyInfo>;
+    requestRegistrationCode: (
+      email: string,
+    ) => Promise<{ ok: true } | { ok: false; error: string }>;
+    verifyRegistrationCode: (
+      email: string,
+      code: string,
+    ) => Promise<
+      | { ok: true; registrationToken: string }
+      | { ok: false; error: string }
+    >;
+    register: (
+      email: string,
+      password: string,
+      registrationToken?: string,
+    ) => Promise<{ ok: true; email: string } | { ok: false; error: string }>;
+    login: (email: string, password: string) => Promise<
+      { ok: true; email: string } | { ok: false; error: string }
+    >;
+    logout: () => Promise<void>;
+    session: () => Promise<AuthSessionInfo>;
+    syncVault: () => Promise<AuthSyncResult>;
+    listAccounts: () => Promise<string[]>;
+  };
   fs: {
     openFolder: () => Promise<string | null>;
     setRoot: (root: string) => Promise<boolean>;
     getRoot: () => Promise<string | null>;
     listFiles: () => Promise<FileEntry | null>;
     readFile: (relativePath: string) => Promise<string>;
+    /** Same as readFile, but resolves to null when the path is missing (no IPC error log). */
+    readFileIfExists: (relativePath: string) => Promise<string | null>;
     writeFile: (relativePath: string, content: string) => Promise<void>;
     createFile: (relativePath: string, content?: string) => Promise<void>;
     deleteFile: (relativePath: string) => Promise<void>;

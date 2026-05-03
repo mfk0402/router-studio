@@ -17,6 +17,13 @@ import * as toolAuditApi from './toolAudit.js';
 import * as updaterApi from './updater.js';
 import * as statsApi from './localStats.js';
 import { restartWebhookServer } from './webhookServer.js';
+import * as accountVault from './accountVault.js';
+import {
+  consumeRegistrationToken,
+  getRegistrationPolicy,
+  requestRegistrationCode,
+  verifyRegistrationCode,
+} from './emailVerification.js';
 import type {
   AgentTask,
   AppSettings,
@@ -35,16 +42,67 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // ---- secure store ----
   ipcMain.handle('secureStore:get', async (_e, key: string) => store.secretGet(key));
-  ipcMain.handle('secureStore:set', async (_e, key: string, value: string) =>
-    store.secretSet(key, value),
-  );
+  ipcMain.handle('secureStore:set', async (_e, key: string, value: string) => {
+    await store.secretSet(key, value);
+    accountVault.scheduleVaultSyncIfLoggedIn();
+  });
   ipcMain.handle('secureStore:delete', async (_e, key: string) => store.secretDelete(key));
+
+  ipcMain.handle('auth:registrationPolicy', async () => getRegistrationPolicy());
+  ipcMain.handle('auth:requestRegistrationCode', async (_e, email: string) =>
+    requestRegistrationCode(email),
+  );
+  ipcMain.handle('auth:verifyRegistrationCode', async (_e, email: string, code: string) =>
+    verifyRegistrationCode(email, code),
+  );
+  ipcMain.handle(
+    'auth:register',
+    async (_e, email: string, password: string, registrationToken?: string) => {
+      if (await accountVault.isEmailRegistered(email)) {
+        return {
+          ok: false as const,
+          error: 'An account with this email already exists. Sign in instead.',
+        };
+      }
+      const policy = getRegistrationPolicy();
+      if (policy.needsVerification) {
+        const tok = typeof registrationToken === 'string' ? registrationToken.trim() : '';
+        if (!tok) {
+          return {
+            ok: false as const,
+            error: 'Enter the verification code from your email.',
+          };
+        }
+        const consumed = await consumeRegistrationToken(email, tok);
+        if (!consumed) {
+          return {
+            ok: false as const,
+            error: 'Verification expired or invalid. Request a new code.',
+          };
+        }
+      }
+      return accountVault.registerAccount(email, password);
+    },
+  );
+  ipcMain.handle('auth:login', async (_e, email: string, password: string) =>
+    accountVault.loginAccount(email, password),
+  );
+  ipcMain.handle('auth:logout', async () => {
+    accountVault.logoutAccount();
+  });
+  ipcMain.handle('auth:session', async () => {
+    const s = accountVault.getSession();
+    return s ? { loggedIn: true as const, email: s.email } : { loggedIn: false as const };
+  });
+  ipcMain.handle('auth:syncVault', async () => accountVault.saveVaultFromCurrentSettings());
+  ipcMain.handle('auth:listAccounts', async () => accountVault.listRegisteredAccounts());
 
   // ---- settings ----
   ipcMain.handle('settings:get', async () => store.getSettings());
   ipcMain.handle('settings:set', async (_e, partial: Partial<AppSettings>) => {
     const next = await store.setSettings(partial);
     restartWebhookServer(getWindow(), next.webhookListenerEnabled, next.webhookPort);
+    accountVault.scheduleVaultSyncIfLoggedIn();
     return next;
   });
 
@@ -54,6 +112,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('fs:getRoot', async () => fsApi.getRoot());
   ipcMain.handle('fs:listFiles', async () => fsApi.listFiles());
   ipcMain.handle('fs:readFile', async (_e, rel: string) => fsApi.readFile(rel));
+  ipcMain.handle('fs:readFileIfExists', async (_e, rel: string) => fsApi.readFileIfExists(rel));
   ipcMain.handle('fs:writeFile', async (_e, rel: string, content: string) =>
     fsApi.writeFile(rel, content),
   );
