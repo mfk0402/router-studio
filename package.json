@@ -14,6 +14,17 @@
   },
   "homepage": "https://github.com/mfk0402/router-studio#readme",
   "type": "module",
+  "bin": {
+    "router-studio": "bin/router-studio.mjs",
+    "router": "bin/router-studio.mjs"
+  },
+  "files": [
+    "bin/**/*",
+    "out/**/*",
+    "resources/**/*",
+    "LICENSE",
+    "scripts/ensure-native-toolchain.mjs"
+  ],
   "engines": {
     "node": ">=20",
     "npm": ">=10"
@@ -30,7 +41,9 @@
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
     "verify-server": "node server/email-verify/server.mjs",
-    "postinstall": "node scripts/ensure-native-toolchain.mjs"
+    "postinstall": "node scripts/ensure-native-toolchain.mjs",
+    "test": "npm run verify",
+    "pack:check": "npm pack --dry-run"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
@@ -77,11 +90,15 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "perMachine": false
+      "perMachine": false,
+      "license": "LICENSE"
     },
     "win": {
       "target": ["nsis", "zip"],
-      "icon": "resources/icon.png"
+      "icon": "resources/icon.png",
+      "sign": null,
+      "signDlls": false,
+      "signAndEditExecutable": false
     },
     "mac": {
       "target": ["dmg", "zip"],

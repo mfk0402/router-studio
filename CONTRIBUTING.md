@@ -14,9 +14,10 @@ npm run dev
 
 ## Before opening a PR
 
-1. Run **`npm run typecheck`** and **`npm run verify`** (typecheck + production build).
-2. Do **not** add real API keys, tokens, or personal paths. Use Settings in the app for keys locally.
-3. Keep changes focused on one concern when possible.
+1. Run **`npm run typecheck`** and **`npm run verify`** (same as **`npm test`** — typecheck + production build).
+2. For release-related changes, optionally run **`npm run pack:check`** (dry-run of the published tarball layout).
+3. Do **not** add real API keys, tokens, or personal paths. Use Settings in the app for keys locally.
+4. Keep changes focused on one concern when possible.
 
 ## Code style
 

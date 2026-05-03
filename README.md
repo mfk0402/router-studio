@@ -1,5 +1,6 @@
 # Router Studio
 
+[![CI](https://github.com/mfk0402/router-studio/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mfk0402/router-studio/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 
@@ -9,7 +10,15 @@ Router Studio is a **desktop IDE** (Electron) for coding with [**OpenRouter**](h
 
 **Repository:** [github.com/mfk0402/router-studio](https://github.com/mfk0402/router-studio) · **Issues:** [github.com/mfk0402/router-studio/issues](https://github.com/mfk0402/router-studio/issues) · **Releases:** [github.com/mfk0402/router-studio/releases](https://github.com/mfk0402/router-studio/releases)
 
-This repo is **the open-source app itself**—Electron + React source, build scripts, and docs in-tree. There is no separate marketing website in the project; ship installers via **Releases** when you publish builds, and point newcomers at this README plus [`CONTRIBUTING.md`](CONTRIBUTING.md).
+**Ways to run**
+
+| Path | Best for |
+|------|-----------|
+| Clone + **`npm run dev`** | Contributors and daily development |
+| **GitHub Releases** (installers + zip) | Users who want a normal desktop install |
+| **`npx router-studio`** (after **`npm run verify`**) | Skip unsigned installers; npm pulls Electron when needed |
+
+This repo is **the open-source app itself**—Electron + React source, build scripts, and docs in-tree. There is no separate marketing website in the project; **README**, **Releases**, and **optional npm** are the public storefront—see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 
@@ -45,11 +54,64 @@ npm run build:mac    # macOS (dmg + zip)
 npm run build:linux  # Linux (AppImage)
 ```
 
+**Run from the terminal (skip the `.exe` installer)**
+
+Router Studio is still the **same Electron desktop app**—not a TUI like Claude Code—but you can start it from any shell so users avoid downloading an unsigned NSIS installer:
+
+```bash
+npm run verify       # once: writes production bundles to ./out
+npx router-studio    # or: npx router (same command)
+```
+
+After a global link from the repo (`npm link`), both `router` and `router-studio` are on your `PATH`. **electron-builder** requires `electron` in **devDependencies**, so production-only installs resolve Electron via **`npx`** on first launch (network required once). From a **clone**, `npm install` includes Electron locally and avoids that step.
+
 **Quality gate**
 
 ```bash
 npm run typecheck
-npm run verify      # typecheck + production renderer/main build
+npm run verify      # typecheck + production renderer/main build (= npm test)
+npm run pack:check  # dry-run npm tarball (CI runs this too)
+```
+
+---
+
+## Deploy & showcase on GitHub
+
+**CI:** Every push and PR runs **`npm ci`**, **`npm run verify`**, and **`npm pack --dry-run`** on Ubuntu and Windows (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The badge at the top of this README links to the Actions tab.
+
+**GitHub repository “About” box (manual)**
+
+- **Description:** e.g. *Desktop OpenRouter IDE — Electron + Monaco, agent workflows, local-only keys.*
+- **Website:** `https://github.com/mfk0402/router-studio#readme` (or your npm package URL after publish).
+- **Topics:** e.g. `electron`, `openrouter`, `monaco-editor`, `react`, `typescript`, `ai`, `ide`, `desktop-app`.
+
+**GitHub Releases**
+
+1. Locally: `npm run verify`, then platform builds (`npm run build:win` / `build:mac` / `build:linux`).
+2. Upload **`release/`** artifacts (installer, `.zip`, `.blockmap` where produced) and write short release notes (features, breaking changes, signing status).
+
+**npm registry (optional)**
+
+1. Confirm the package name **`router-studio`** is available (or scope it, e.g. `@your-scope/router-studio`, and update `name` + docs).
+2. **`npm run verify`** so `./out` exists (it is gitignored but **included** in the packed tarball via the `files` field in [`package.json`](package.json)).
+3. **`npm publish`** (with MFA / automation token as you prefer).
+
+**Security before going wider**
+
+1. Audit history for secrets (`sk-or-`, `ghp_`, embedded credentials, machine paths).
+2. Confirm `.gitignore` excludes `out/`, `release/`, `node_modules/`, `.env*`.
+3. `repository` / `bugs` / `homepage` in [`package.json`](package.json) match **mfk0402/router-studio**.
+4. Branch protection on `main`; **SECURITY.md** reporting path is correct.
+
+**Initial remote (if starting from this clone)**
+
+```bash
+git add -A
+git status    # confirm no secrets / stray artifacts
+git commit -m "chore: initial Router Studio import"
+git branch -M main
+git remote add origin https://github.com/mfk0402/router-studio.git
+git push -u origin main
 ```
 
 ---
@@ -149,7 +211,7 @@ Never commit `.env`, tokens, or `secrets.*` files—see [`.env.example`](.env.ex
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). PRs should pass `npm run verify`.
+See [CONTRIBUTING.md](CONTRIBUTING.md). PRs should pass **`npm test`** / **`npm run verify`**.
 
 ---
 
@@ -162,27 +224,3 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). PRs should pass `npm run verify`.
 ## Disclaimer
 
 Router Studio is **not affiliated** with OpenRouter or model providers. You are responsible for complying with each provider’s terms.
-
----
-
-## Publishing checklist (maintainers)
-
-Before going public:
-
-1. Audit history for secrets (`sk-or-`, `ghp_`, embedded credentials, machine paths).
-2. Confirm `.gitignore` excludes `out/`, `release/`, `node_modules/`, `.env*`.
-3. `repository` / `bugs` / `homepage` in [`package.json`](package.json) match **mfk0402/router-studio** (already set).
-4. Push `main`, enable branch protection, verify **SECURITY.md** private reporting.
-
-**Initial push (if starting from this clone)**
-
-```bash
-git add -A
-git status    # confirm no secrets / build artifacts
-git commit -m "chore: initial Router Studio import"
-git branch -M main
-git remote add origin https://github.com/mfk0402/router-studio.git
-git push -u origin main
-```
-
-Then adjust visibility on GitHub when ready.
