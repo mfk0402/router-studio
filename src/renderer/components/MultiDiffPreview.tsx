@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store/appStore';
 import { makePatch } from '../lib/diffUtils';
 
@@ -20,6 +20,13 @@ export default function MultiDiffPreview() {
   const [selectedFileIdx, setSelectedFileIdx] = useState(0);
   const [acceptedFiles, setAcceptedFiles] = useState<Set<string>>(new Set());
   const [rejectedFiles, setRejectedFiles] = useState<Set<string>>(new Set());
+
+  const pendingPathKey = pending?.map((f) => f.relativePath).join('\0') ?? '';
+  useEffect(() => {
+    setAcceptedFiles(new Set());
+    setRejectedFiles(new Set());
+    setSelectedFileIdx(0);
+  }, [pendingPathKey]);
 
   // Ensure selected index is valid
   const selectedFile = pending && pending[selectedFileIdx] ? pending[selectedFileIdx] : null;
@@ -140,8 +147,8 @@ export default function MultiDiffPreview() {
   }, [pending]);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
-      <div className="flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-border bg-bg-soft shadow-2xl">
+    <div className="modal-scrim fixed inset-0 z-40 flex items-center justify-center p-4 ds-transition">
+      <div className="glass-panel glass-modal-lg flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden ds-transition">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border-soft px-4 py-3">
           <div>

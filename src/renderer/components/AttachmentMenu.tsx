@@ -73,7 +73,7 @@ export default function AttachmentMenu() {
         + Attach
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 z-10 mb-1 w-48 overflow-hidden rounded-md border border-border bg-bg-soft shadow-2xl">
+        <div className="chrome-dropdown absolute bottom-full left-0 z-10 mb-1 w-48 overflow-hidden py-0.5 ds-transition">
           <MenuItem label="Image…" hint="png, jpg, webp" onClick={addImage} />
           <MenuItem label="Screenshot…" hint="capture screen region" onClick={() => {
             setOpen(false);
@@ -168,9 +168,9 @@ function UrlModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div className="modal-scrim fixed inset-0 z-50 flex items-center justify-center ds-transition" onClick={onClose}>
       <div
-        className="w-full max-w-md rounded-xl border border-border bg-bg-soft p-4 shadow-2xl"
+        className="glass-panel glass-modal-lg w-full max-w-md p-4 ds-transition"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-2 text-sm font-semibold">Attach Web Page</div>
@@ -232,9 +232,9 @@ function SnippetModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div className="modal-scrim fixed inset-0 z-50 flex items-center justify-center ds-transition" onClick={onClose}>
       <div
-        className="w-full max-w-lg rounded-xl border border-border bg-bg-soft p-4 shadow-2xl"
+        className="glass-panel glass-modal-lg w-full max-w-lg p-4 ds-transition"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-2 text-sm font-semibold">Attach Snippet</div>

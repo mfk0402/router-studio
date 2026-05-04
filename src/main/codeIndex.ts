@@ -312,6 +312,17 @@ export function getIndexMeta(): IndexMeta | null {
   return { projectRoot: indexedRoot, chunkCount: chunks.length, builtAt };
 }
 
+/** Drop index so the next semantic_search rebuilds (after edits on disk). */
+export function invalidateCodeIndex(): void {
+  chunks = [];
+  docLengths = [];
+  postings = new Map();
+  N = 0;
+  avgdl = 0;
+  indexedRoot = null;
+  builtAt = 0;
+}
+
 export function indexMatchesRoot(projectRoot: string): boolean {
   if (!indexedRoot || !projectRoot) return false;
   return path.resolve(projectRoot) === indexedRoot && chunks.length > 0;

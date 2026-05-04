@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import type { ChatMsg } from '../store/appStore';
 
 interface SuggestedActionsProps {
@@ -112,7 +112,7 @@ function analyzeSuggestions(msg: ChatMsg | null): ActionSuggestion[] {
   return suggestions.slice(0, 4);
 }
 
-export function SuggestedActions({ lastMessage, onAction, disabled }: SuggestedActionsProps) {
+function SuggestedActionsInner({ lastMessage, onAction, disabled }: SuggestedActionsProps) {
   const suggestions = useMemo(() => analyzeSuggestions(lastMessage), [lastMessage]);
 
   if (!lastMessage || lastMessage.role !== 'assistant' || lastMessage.streaming) {
@@ -137,3 +137,5 @@ export function SuggestedActions({ lastMessage, onAction, disabled }: SuggestedA
     </div>
   );
 }
+
+export const SuggestedActions = memo(SuggestedActionsInner);

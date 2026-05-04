@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useApp } from '../store/appStore';
 import { useSettings } from '../store/settingsStore';
+import { PanelResizeHandle } from './PanelResizeHandle';
 import TerminalPane from './TerminalPane';
 import { ProblemsPanel } from './ProblemsPanel';
 import TestRunnerPanel from './TestRunnerPanel';
@@ -44,7 +45,7 @@ export default function BottomPanel() {
   }, [currentModel, settings.defaultModel, freeModeEnabled]);
 
   return (
-    <div className="shrink-0 border-t border-border-soft bg-bg-elevated">
+    <div className="panel-chrome shrink-0">
       <div className="flex h-8 items-center justify-between border-b border-border-soft px-2 text-[11px] text-fg-muted">
         <div className="flex items-center gap-2">
           <button
@@ -103,14 +104,27 @@ export default function BottomPanel() {
         </div>
       </div>
       {!collapsed && (
-        <div className="relative h-48 border-t border-border-soft bg-[#0b0d12]">
+        <>
+          <PanelResizeHandle
+            orientation="row"
+            onDrag={(dy) => {
+              const cur = useSettings.getState().settings.bottomPanelHeightPx;
+              void useSettings.getState().update({
+                bottomPanelHeightPx: Math.min(560, Math.max(120, cur - dy)),
+              });
+            }}
+          />
           <div
-            ref={scrollRef}
-            className={
-              'absolute inset-0 overflow-auto px-3 py-2 font-mono text-[11px] ' +
-              (bottomTab === 'output' ? 'block' : 'hidden')
-            }
+            className="relative border-t border-border-soft bg-[#0b0d12]"
+            style={{ height: settings.bottomPanelHeightPx }}
           >
+            <div
+              ref={scrollRef}
+              className={
+                'absolute inset-0 overflow-auto px-3 py-2 font-mono text-[11px] ' +
+                (bottomTab === 'output' ? 'block' : 'hidden')
+              }
+            >
             {logs.length === 0 ? (
               <div className="text-fg-subtle">No output yet.</div>
             ) : (
@@ -132,7 +146,7 @@ export default function BottomPanel() {
                 </div>
               ))
             )}
-          </div>
+            </div>
           {/* Keep the terminal mounted after its first activation so its
               session and scrollback survive tab switches. */}
           {terminalEverActive.current && (
@@ -160,7 +174,8 @@ export default function BottomPanel() {
           >
             <TestRunnerPanel />
           </div>
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

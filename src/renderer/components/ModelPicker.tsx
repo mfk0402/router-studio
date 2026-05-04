@@ -9,6 +9,7 @@ import {
   filterModels,
   formatContext,
   formatPricePerM,
+  formatVideoSkuPriceSummary,
   premiumIn,
   priceRange,
   priceTierLabel,
@@ -16,6 +17,8 @@ import {
   type SortKey,
 } from '../lib/modelFilters';
 import { fetchModels, clearCachedModels } from '../lib/openrouterClient';
+import { getCompletionRouting, canRefreshModelCatalog } from '../lib/completionRouting';
+import { ROUTER_STUDIO_AUTO } from '../lib/autoModelRouting';
 import type { ModelCategory, NormalizedModel, PriceTier } from '../../shared/types';
 import logoIcon from '../assets/logo-icon.png';
 
@@ -80,14 +83,15 @@ export default function ModelPicker() {
   if (!open) return null;
 
   const refresh = async () => {
-    if (!settings.apiKey) {
-      pushLog('warn', 'No API key set — cannot refresh models.');
+    if (!canRefreshModelCatalog(settings)) {
+      pushLog('warn', 'Set a local completion base URL in Settings → Models to refresh the catalog.');
       return;
     }
     setModelsLoading(true);
     try {
       clearCachedModels();
-      const fresh = await fetchModels(settings.apiKey);
+      const routing = getCompletionRouting(settings);
+      const fresh = await fetchModels(settings.apiKey ?? '', routing.openAiBaseUrl);
       setModels(fresh);
       pushLog('info', `Refreshed ${fresh.length} models.`);
     } catch (e) {
@@ -102,8 +106,28 @@ export default function ModelPicker() {
       pushLog('warn', 'Free Mode is enabled. Disable it to select paid models.');
       return;
     }
-    await updateSettings({ defaultModel: m.id });
+    await updateSettings({ defaultModel: m.id, activeModelProfile: 'custom' });
     pushLog('info', `Default model set to ${m.id} (${formatPricePerM(m.avgPricePerM)})`);
+    setOpen(false);
+  };
+
+  const pickAuto = async (kind: 'infer' | 'category', cat?: ModelCategory) => {
+    if (getCompletionRouting(settings).openAiBaseUrl) {
+      pushLog('warn', 'Auto routing applies to OpenRouter completions. Switch provider from Local in Settings → Models.');
+      return;
+    }
+    if (freeModeEnabled) {
+      pushLog('warn', 'Disable Free Mode to use category auto-routing.');
+      return;
+    }
+    const id = kind === 'infer' ? ROUTER_STUDIO_AUTO : `router-studio/auto:${cat}`;
+    await updateSettings({ defaultModel: id, activeModelProfile: 'custom' });
+    pushLog(
+      'info',
+      kind === 'infer'
+        ? 'Default: Auto — infers task type and picks the cheapest suitable model each turn.'
+        : `Default: Auto — always use the cheapest model in “${CATEGORY_META[cat as ModelCategory].label}”.`,
+    );
     setOpen(false);
   };
 
@@ -114,8 +138,8 @@ export default function ModelPicker() {
   };
 
   return (
-    <div className="modal-scrim fixed inset-0 z-40 flex items-start justify-center p-6">
-      <div className="flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-border bg-bg-soft shadow-2xl">
+    <div className="modal-scrim fixed inset-0 z-[110] flex items-start justify-center p-6">
+      <div className="glass-panel glass-modal-lg flex h-full w-full max-w-6xl flex-col overflow-hidden ds-transition">
         <div className="flex items-center justify-between border-b border-border-soft px-4 py-3">
           <div className="flex min-w-0 items-start gap-3">
             <span className="brand-mark-icon-wrap mt-0.5">
@@ -251,6 +275,32 @@ export default function ModelPicker() {
               </div>
             </div>
 
+            {/* Auto: infer task or lock to sidebar category */}
+            <div className="flex flex-wrap items-center gap-2 border-b border-border-soft bg-bg-deep/40 px-4 py-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+                Auto
+              </span>
+              <button
+                type="button"
+                onClick={() => void pickAuto('infer')}
+                className="rounded-md border border-accent/30 bg-accent/10 px-2 py-1 text-[11px] text-accent hover:bg-accent/20"
+              >
+                Infer task → cheapest fit
+              </button>
+              {category !== 'all' ? (
+                <button
+                  type="button"
+                  onClick={() => void pickAuto('category', category)}
+                  className="rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted hover:bg-bg-hover hover:text-fg"
+                >
+                  Lock to this category: cheapest only
+                </button>
+              ) : null}
+              <span className="text-[10px] text-fg-subtle">
+                Overrides: set an explicit model, or set Read / Reasoning models in Settings → Agent.
+              </span>
+            </div>
+
             {/* Quick-pick row (cheapest / balanced / premium) */}
             <div className="flex flex-wrap items-stretch gap-2 border-b border-border-soft bg-bg-soft px-4 py-3">
               <QuickPick
@@ -344,8 +394,13 @@ function QuickPick({
           <div className="truncate text-[11px] text-fg-muted">{model.id}</div>
           <div className="mt-1 flex items-center justify-between text-[11px] text-fg-muted">
             <span>
-              in {formatPricePerM(model.inPricePerM)} · out{' '}
-              {formatPricePerM(model.outPricePerM)}
+              {formatVideoSkuPriceSummary(model.raw) ? (
+                <span title="OpenRouter async video API — not per chat token">{formatVideoSkuPriceSummary(model.raw)}</span>
+              ) : (
+                <>
+                  in {formatPricePerM(model.inPricePerM)} · out {formatPricePerM(model.outPricePerM)}
+                </>
+              )}
             </span>
             <span>ctx {formatContext(model.contextLength)}</span>
           </div>
@@ -413,8 +468,16 @@ function ModelRow({
         </div>
         <div className="shrink-0 text-right text-[11px] text-fg-muted">
           <div>ctx {formatContext(model.contextLength)}</div>
-          <div>in {formatPricePerM(model.inPricePerM)}</div>
-          <div>out {formatPricePerM(model.outPricePerM)}</div>
+          {formatVideoSkuPriceSummary(model.raw) ? (
+            <div className="max-w-[12rem]" title="OpenRouter video API SKUs (not per chat token)">
+              {formatVideoSkuPriceSummary(model.raw)}
+            </div>
+          ) : (
+            <>
+              <div>in {formatPricePerM(model.inPricePerM)}</div>
+              <div>out {formatPricePerM(model.outPricePerM)}</div>
+            </>
+          )}
         </div>
       </div>
     </li>

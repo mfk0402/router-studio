@@ -1,8 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useApp } from '../store/appStore';
 import { useSettings } from '../store/settingsStore';
 import { sendChatCompletion } from '../lib/openrouterClient';
+import { getCompletionRouting } from '../lib/completionRouting';
 import type { NormalizedModel } from '../../shared/types';
+import { segmentOutputWithFileLinks } from '../lib/outputLinkParse';
+import { openOrRevealFileAtLocation } from '../lib/editorNavigation';
 
 interface TestResult {
   name: string;
@@ -48,6 +51,37 @@ const FRAMEWORK_ICONS: Record<Framework, string> = {
   go: '🔵',
   unknown: '🧪',
 };
+
+function ClickableMonoOutput({
+  text,
+  projectRoot,
+  className,
+}: {
+  text: string;
+  projectRoot: string | null;
+  className?: string;
+}) {
+  const segments = useMemo(() => segmentOutputWithFileLinks(text), [text]);
+  return (
+    <pre className={className}>
+      {segments.map((s, i) =>
+        s.type === 'text' ? (
+          <span key={i}>{s.text}</span>
+        ) : (
+          <button
+            key={i}
+            type="button"
+            className="inline cursor-pointer border-0 bg-transparent p-0 font-mono text-accent underline decoration-accent/40 hover:text-accent"
+            title="Open in editor"
+            onClick={() => void openOrRevealFileAtLocation(s.link, projectRoot)}
+          >
+            {s.link.raw}
+          </button>
+        ),
+      )}
+    </pre>
+  );
+}
 
 export default function TestRunnerPanel() {
   const [detectedFramework, setDetectedFramework] = useState<Framework>('unknown');
@@ -368,8 +402,10 @@ Please analyze the failures and suggest fixes.`;
         createdAt: Date.now(),
       });
 
+      const routing = getCompletionRouting(settings);
       await sendChatCompletion({
-        apiKey: settings.apiKey,
+        apiKey: routing.apiKey,
+        openAiBaseUrl: routing.openAiBaseUrl,
         model,
         messages: [
           { role: 'system', content: systemPrompt },
@@ -383,6 +419,8 @@ Please analyze the failures and suggest fixes.`;
           strategy: 'router',
           freeModels: [] as NormalizedModel[],
         },
+        fallbackModel: settings.fallbackModel || undefined,
+        completionFallbackModels: settings.completionFallbackModels,
         onStreamChunk: (chunk) => {
           if (chunk.type === 'delta' && chunk.content) {
             response += chunk.content;
@@ -571,12 +609,31 @@ Please analyze the failures and suggest fixes.`;
                           <div className="flex-1 min-w-0">
                             <div className="text-xs text-fg">{result.name}</div>
                             {result.file && (
-                              <div className="text-[10px] text-fg-subtle">{result.file}</div>
+                              <button
+                                type="button"
+                                className="block max-w-full truncate text-left font-mono text-[10px] text-accent hover:underline"
+                                title="Open in editor"
+                                onClick={() =>
+                                  void openOrRevealFileAtLocation(
+                                    {
+                                      relativePath: result.file!,
+                                      line: result.line ?? 1,
+                                      column: undefined,
+                                    },
+                                    projectRoot,
+                                  )
+                                }
+                              >
+                                {result.file}
+                                {result.line != null ? `:${result.line}` : ''}
+                              </button>
                             )}
                             {result.error && (
-                              <pre className="mt-1 overflow-x-auto rounded bg-red-500/10 p-2 text-[10px] text-red-400">
-                                {result.error}
-                              </pre>
+                              <ClickableMonoOutput
+                                text={result.error}
+                                projectRoot={projectRoot}
+                                className="mt-1 overflow-x-auto whitespace-pre-wrap rounded bg-red-500/10 p-2 font-mono text-[10px] text-red-400"
+                              />
                             )}
                           </div>
                           {result.duration && (
@@ -589,9 +646,11 @@ Please analyze the failures and suggest fixes.`;
                 ) : (
                   <div className="p-3">
                     <div className="mb-2 text-xs font-medium text-fg-muted">Raw Output</div>
-                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-bg-elevated p-2 text-[10px] text-fg-muted">
-                      {selectedRun.output || 'No output'}
-                    </pre>
+                    <ClickableMonoOutput
+                      text={selectedRun.output || 'No output'}
+                      projectRoot={projectRoot}
+                      className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-bg-elevated p-2 font-mono text-[10px] text-fg-muted"
+                    />
                   </div>
                 )}
               </div>

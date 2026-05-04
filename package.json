@@ -29,6 +29,22 @@
     "node": ">=20",
     "npm": ">=10"
   },
+  "optionalDependencies": {
+    "@esbuild/darwin-arm64": "0.21.5",
+    "@esbuild/darwin-x64": "0.21.5",
+    "@esbuild/linux-arm64": "0.21.5",
+    "@esbuild/linux-x64": "0.21.5",
+    "@esbuild/win32-arm64": "0.21.5",
+    "@esbuild/win32-ia32": "0.21.5",
+    "@esbuild/win32-x64": "0.21.5",
+    "@rollup/rollup-darwin-arm64": "4.60.2",
+    "@rollup/rollup-darwin-x64": "4.60.2",
+    "@rollup/rollup-linux-arm64-gnu": "4.60.2",
+    "@rollup/rollup-linux-x64-gnu": "4.60.2",
+    "@rollup/rollup-win32-arm64-msvc": "4.60.2",
+    "@rollup/rollup-win32-ia32-msvc": "4.60.2",
+    "@rollup/rollup-win32-x64-msvc": "4.60.2"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "verify": "npm run typecheck && electron-vite build",
@@ -49,9 +65,11 @@
     "@monaco-editor/react": "^4.6.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
+    "chokidar": "^4.0.3",
     "diff": "^5.2.0",
     "electron-updater": "^6.6.2",
     "monaco-editor": "^0.50.0",
+    "playwright": "^1.59.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
@@ -94,14 +112,20 @@
       "license": "LICENSE"
     },
     "win": {
-      "target": ["nsis", "zip"],
+      "target": [
+        "nsis",
+        "zip"
+      ],
       "icon": "resources/icon.png",
       "sign": null,
       "signDlls": false,
       "signAndEditExecutable": false
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "category": "public.app-category.developer-tools",
       "icon": "resources/icon.png"
     },

@@ -1,6 +1,7 @@
 /**
  * Product backlog — single source of truth for shipped vs planned capability.
  * Shown in-app via Help → Product roadmap (and command palette: type "roadmap"); keep docs/ROADMAP.md aligned at a high level.
+ * Strategic Phases 11–35: ROUTER_STUDIO_NEXT_GEN_ROADMAP.md (Phase 36 ties docs ↔ this file).
  */
 export type RoadmapStatus = 'shipped' | 'in_progress' | 'planned';
 
@@ -66,12 +67,54 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
       { id: 'model-picker', title: 'Model marketplace UI + filters', status: 'shipped' },
       { id: 'free-mode', title: 'Free Mode + router/cycle strategies', status: 'shipped' },
       { id: 'token-meter', title: 'Live token & cost meter + cache hints', status: 'shipped' },
+      {
+        id: 'local-openai-completions',
+        title: 'Local OpenAI-compatible completions',
+        status: 'shipped',
+        detail:
+          'Settings → Models → Completion API: route chat/agent/inline AI to a custom base URL (Ollama/LM Studio/vLLM). Optional Bearer uses the stored API key field. Model picker refreshes via GET /v1/models on that base.',
+      },
+      {
+        id: 'completion-token-budgets',
+        title: 'Daily & session completion-token budgets',
+        status: 'shipped',
+        detail:
+          'Settings → Models; enforced using usage returned by the API when available; AI panel shows pre-send hints.',
+      },
+      {
+        id: 'task-receipt-markdown',
+        title: 'Task receipt (markdown to clipboard)',
+        status: 'shipped',
+        detail:
+          'AI panel copies a markdown summary of the thread and tool runs for logs or tickets.',
+      },
       { id: 'smart-routing', title: 'Smart routing (cheap reads / premium reasoning)', status: 'shipped', detail: 'Settings → Agent Mode: optional read vs reasoning models for tool hops.' },
+      {
+        id: 'model-profile-presets',
+        title: 'Built-in model profiles (Settings)',
+        status: 'shipped',
+        detail:
+          'Model profile dropdown applies defaultModel + agent read/reason models + smart routing; activeModelProfile vs Custom. See src/shared/modelProfiles.ts.',
+      },
+      {
+        id: 'router-command-language',
+        title: 'Router command language (@file, @route, @free, …)',
+        status: 'shipped',
+        detail:
+          'AI panel expands @free, @route, @file, @folder, @docs, @test, @learn on send (routerCommandLanguage.ts); combines with @chat…@ship prefixes.',
+      },
+      {
+        id: 'completion-fallback-chain',
+        title: 'Multi-model fallback chain on upstream failures',
+        status: 'shipped',
+        detail:
+          'Settings → Models: extra model ids per line after the dropdown fallback; used by chat, reflections, Ghost text, IDE panels (inline edit, code actions, tests, git message), offline queue payloads, and agent tool streaming hops.',
+      },
       {
         id: 'benchmarks',
         title: 'Public benchmark harness & reproducible runs',
         status: 'in_progress',
-        detail: 'Command palette → Model Benchmark for local latency probe.',
+        detail: 'Command palette → Model Benchmark; works with local completions when a base URL is configured.',
       },
       {
         id: 'model-evaluator-ui',
@@ -105,7 +148,8 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
         id: 'ghost-text',
         title: 'Ghost-text autocomplete (FIM / inline)',
         status: 'shipped',
-        detail: 'Settings → Editor — AI ghost text; OpenRouter completion with debounce + cooldown.',
+        detail:
+          'Settings → Editor — AI ghost text; uses sendChatCompletion (including configured fallback chain) + debounce + cooldown.',
       },
       {
         id: 'lsp',
@@ -161,7 +205,7 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
         id: 'fs-tools',
         title: 'Filesystem agent tools + diff preview routing',
         status: 'shipped',
-        detail: 'read_file, write_file, edit_file, create_file, delete_file, list_dir, stat_file.',
+        detail: 'read_file, write_file, edit_file, create_file, rename_file, delete_file, list_dir, stat_file.',
       },
       {
         id: 'editor-agent-tools',
@@ -192,15 +236,16 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
       {
         id: 'doc-tools',
         title: 'First-class doc lookup tools (MDN, npm, PyPI, package README)',
-        status: 'planned',
+        status: 'shipped',
         detail:
-          'Planned dedicated tools; today fetch_url / run_shell / chat context cover many lookups.',
+          'lookup_npm_package (registry latest), lookup_pypi_package (pypi JSON), lookup_mdn_doc (mozilla.org docs extract). Generic fetch_url / fetch_json remain for other hosts.',
       },
       {
         id: 'net-tools',
-        title: 'HTTP fetch tools (URL + JSON)',
+        title: 'HTTP fetch tools (URL + JSON) + doc lookups',
         status: 'shipped',
-        detail: 'fetch_url and fetch_json with size limits for agent context.',
+        detail:
+          'fetch_url and fetch_json with size limits; lookup_npm_package, lookup_pypi_package, lookup_mdn_doc for curated registries/docs.',
       },
       {
         id: 'diag-tests-tool',
@@ -248,6 +293,55 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
           'semantic_search, reindex_codebase, and find_similar tools in the main process — lexical relevance without native embedding deps.',
       },
       {
+        id: 'product-modes',
+        title: 'Product modes (Chat / Edit / Agent / Architect / Review / Ship)',
+        status: 'shipped',
+        detail:
+          'Mode switcher + Ctrl+Shift+1…6, tool gating via productMode, per-mode system prompts, inline @mode prefixes.',
+      },
+      {
+        id: 'pbv-checklist',
+        title: 'Plan → Build → Verify checklist + [[STEP:id:status]] markers',
+        status: 'shipped',
+        detail:
+          'Task plan steps on AgentTask, checklist UI, marker parsing, hop/tool stop guards (extend stopConditions over time).',
+      },
+      {
+        id: 'composer',
+        title: 'Multi-file Composer panel + impact JSON workflow',
+        status: 'shipped',
+        detail:
+          'Composer side sheet: preview prompt, paste planner JSON, row toggles, apply prompt; composer snapshot on tasks.',
+      },
+      {
+        id: 'prompt-injection-guard',
+        title: 'Prompt-injection heuristics on tool outputs',
+        status: 'shipped',
+        detail:
+          'Main process wraps flagged outputs + renderer toast via tools:injectionWarning; trust line in system prompt.',
+      },
+      {
+        id: 'command-risk-score',
+        title: 'Shell command risk score 0–5 + approval modal surfacing',
+        status: 'shipped',
+        detail:
+          'scoreShellCommand in run_shell path; scores ≥4 force approval; safer-alternative copy button.',
+      },
+      {
+        id: 'sensitive-path-guard',
+        title: 'Sensitive path guard (.env, keys, secrets) + policy.json opt-in',
+        status: 'shipped',
+        detail:
+          'assertSensitivePathAllowed on read/write agent tools unless .routerstudio/policy.json allows.',
+      },
+      {
+        id: 'browser-tools',
+        title: 'Playwright browser tools + localhost preview panel',
+        status: 'shipped',
+        detail:
+          'browser_open/click/type/screenshot/eval/console_logs/wait_for_text/get_dom; sandbox blocks eval/type; /visual-fix slash template.',
+      },
+      {
         id: 'task-dag-viz',
         title: 'Task DAG visualization (branching runs)',
         status: 'shipped',
@@ -283,8 +377,9 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
       {
         id: 'task-runner',
         title: 'Build/task runner with clickable output links',
-        status: 'in_progress',
-        detail: 'run_npm_script tool + terminal; clickable links polish still planned.',
+        status: 'shipped',
+        detail:
+          'Tests panel: clickable path:line in raw output and errors; result rows open files at optional line. Terminal context menu opens editor when selection matches path:line. Monaco queued reveal lines.',
       },
       {
         id: 'dap',
@@ -351,13 +446,15 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
         id: 'export-replay',
         title: 'Task export/share + replay',
         status: 'in_progress',
-        detail: 'Tasks modal exports JSON + export_agent_task tool; replay UX minimal.',
+        detail:
+          'Tasks modal (Saved tasks): export JSON / Mermaid; export_agent_task tool. Full replay/redo UX still minimal.',
       },
       {
         id: 'checkpoints',
         title: 'File snapshots + rewind to turn N',
         status: 'in_progress',
-        detail: 'workspace_snapshot_save + list_workspace_snapshots; rewind UI later.',
+        detail:
+          'workspace_snapshot_save + list_workspace_snapshots; Tasks modal Checkpoints tab lists payloads, restores files to the open folder, deletes snapshot JSON, copy payload. Per-turn agent rewind remains planned.',
       },
     ],
   },
@@ -438,6 +535,168 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
         detail: 'electron-builder zip + nsis/dmg targets; CI signing pipeline separate.',
       },
       { id: 'signing', title: 'Platform signing + notarization matrix', status: 'planned', detail: 'CI secrets & electron-builder profiles.' },
+    ],
+  },
+  {
+    id: 'next-gen-strategy',
+    title: 'Next-generation roadmap (Phases 11–35)',
+    summary:
+      'Strategic backlog in ROUTER_STUDIO_NEXT_GEN_ROADMAP.md (Phases 11–35). Rollup items below map major sections; Phase 36 ties narrative ↔ shipped IDs.',
+    items: [
+      {
+        id: 'ng-identity-modes',
+        title: 'Product identity: command language & Learn mode',
+        status: 'in_progress',
+        detail:
+          'Phase 11: @file/@route/@free directives shipped (routerCommandLanguage.ts); first-class Learn ProductMode still planned.',
+      },
+      {
+        id: 'ng-model-router-profiles',
+        title: 'Advanced model router (profiles, fallbacks, budgets)',
+        status: 'in_progress',
+        detail:
+          'Phase 12: built-in profiles + per-message @route/@free + completion-token budgets shipped; configurable multi-model fallback chain (Settings + chat + agent stream hops); pool health, skill routing still planned.',
+      },
+      {
+        id: 'ng-codebase-intelligence',
+        title: 'Codebase intelligence engine',
+        status: 'planned',
+        detail: 'Phase 13: graph, embeddings strategy, smart retrieval beyond BM25 semantic_search.',
+      },
+      {
+        id: 'ng-agent-checkpoints',
+        title: 'Agent checkpoints, rewind UI & task reports',
+        status: 'in_progress',
+        detail:
+          'Phase 14 / Sprint 2: workspace file checkpoints + Tasks modal restore/delete shipped; deepen PBV with per-turn rewind, compare, branch-from-checkpoint (roadmap backlog).',
+      },
+      {
+        id: 'ng-inline-ux',
+        title: 'Inline UX parity (enhanced Ctrl+K, quick fixes)',
+        status: 'planned',
+        detail: 'Phase 15: Cursor-class inline flows on top of shipped inline edit + composer.',
+      },
+      {
+        id: 'ng-vscode-parity',
+        title: 'VS Code compatibility (settings, themes, keybindings)',
+        status: 'planned',
+        detail: 'Phase 16: import paths; roadmap editor item vscode-theme-import planned.',
+      },
+      {
+        id: 'ng-git-pr-team',
+        title: 'Git / PR / team workflows',
+        status: 'planned',
+        detail: 'Phase 17: deepen beyond git_status…commit + GitHub/Linear tools.',
+      },
+      {
+        id: 'ng-browser-fullstack-testing',
+        title: 'Browser & full-stack app verification (Phase 18 completion)',
+        status: 'planned',
+        detail:
+          'Beyond shipped Playwright tools + localhost panel: DOM pick from preview, screenshot→component polish, UI regression / Playwright codegen from flows.',
+      },
+      {
+        id: 'ng-local-privacy',
+        title: 'Local models & offline power',
+        status: 'in_progress',
+        detail:
+          'OpenAI-compatible local completions shipped (Settings → Models). Catalog refresh via GET /v1/models when local provider is selected. Planned: hybrid routing (local summarize / cloud reason), privacy labels, full offline packaging.',
+      },
+      {
+        id: 'ng-team-rules-memory',
+        title: 'Team rules, shared memory & org knowledge',
+        status: 'planned',
+        detail:
+          'Phase 20: shared rule packs, team memory namespaces, policy sync — extends shipped rules + memory tools.',
+      },
+      {
+        id: 'ng-mcp-marketplace',
+        title: 'MCP marketplace + plugin SDK',
+        status: 'planned',
+        detail:
+          'Phase 21: browse/install MCP; tool permission profiles; typed plugin manifest — extends extensibility phase.',
+      },
+      {
+        id: 'ng-performance',
+        title: 'Performance engineering & large-repo mode',
+        status: 'planned',
+        detail:
+          'Phase 22: startup, streaming progress, large-repo mode, local perf dashboard, crash/freeze watchdogs.',
+      },
+      {
+        id: 'ng-security-hardening',
+        title: 'Security hardening (secret scanner, signed audit enhancements)',
+        status: 'planned',
+        detail: 'Phase 23: extend shipped injection/risk/sensitive guards + governance.',
+      },
+      {
+        id: 'ng-visual-ux-polish',
+        title: 'Design system, agent timeline & startup dashboard',
+        status: 'planned',
+        detail:
+          'Phase 24: tokens, surface polish, agent activity timeline, richer model picker UX, welcome dashboard.',
+      },
+      {
+        id: 'ng-in-app-docs-trust',
+        title: 'In-app docs panel & trust artifacts',
+        status: 'planned',
+        detail:
+          'Phase 25: built-in help for routing/agents/tools/security/MCP; exportable run reports for teams.',
+      },
+      {
+        id: 'ng-internal-quality',
+        title: 'Internal architecture & codebase quality bar',
+        status: 'planned',
+        detail:
+          'Phase 26: module boundaries, coverage targets, CI gates — engineering excellence behind UX.',
+      },
+      {
+        id: 'ng-built-in-tool-library',
+        title: 'Built-in AI tool library & agent recipes',
+        status: 'planned',
+        detail:
+          'Phase 27: curated recipes (migrate, audit, release prep) beyond slash commands + custom actions.',
+      },
+      {
+        id: 'ng-starters-scaffolding',
+        title: 'Starters, scaffolding & codegen templates',
+        status: 'planned',
+        detail:
+          'Phase 28: project starters from palette; codegen packs — pairs with Composer + task templates.',
+      },
+      {
+        id: 'ng-eval-benchmarks-suite',
+        title: 'Evaluation suites & quality scoring',
+        status: 'planned',
+        detail:
+          'Phase 29: scripted regression suites, per-task scorecards — extends Model Benchmark (openrouter phase items).',
+      },
+      {
+        id: 'ng-remote-mobile',
+        title: 'Remote, mobile & background agents',
+        status: 'planned',
+        detail: 'Phase 30: task control outside desktop session.',
+      },
+      {
+        id: 'ng-monetization',
+        title: 'Business-ready licensing & team policies',
+        status: 'planned',
+        detail: 'Phase 31: org rollout path without breaking BYOK story.',
+      },
+      {
+        id: 'ng-roadmap-agent-playbook',
+        title: 'Roadmap execution playbook (Phase 32)',
+        status: 'planned',
+        detail:
+          'Maintain agent/human workflows that implement ROUTER_STUDIO_NEXT_GEN_ROADMAP.md incrementally; ties Phase 33–36 prompts.',
+      },
+      {
+        id: 'ng-competitive-parity-checklist',
+        title: 'Feature acceptance & vision reviews (Phases 34–35)',
+        status: 'planned',
+        detail:
+          'Close Phase 34 checklist items and Phase 35 pillars per release; reconcile with shipped behavior and roadmap.ts.',
+      },
     ],
   },
 ];

@@ -46,7 +46,7 @@ export default function WelcomeTour({ onDone }: WelcomeTourProps) {
 
   return (
     <div className="modal-scrim fixed inset-0 z-[60] flex items-center justify-center backdrop-blur-[1px] p-6">
-      <div className="w-full max-w-md rounded-xl border border-border bg-bg-soft p-5 shadow-2xl">
+      <div className="glass-panel glass-modal-lg w-full max-w-md p-5 ds-transition">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <span className="brand-mark-icon-wrap">

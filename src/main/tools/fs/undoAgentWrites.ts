@@ -5,7 +5,7 @@ export const tool: RegisteredTool = {
   name: 'undo_agent_writes',
   description:
     'Revert recent agent-driven file writes tracked in this session (write_file, edit_file, create_file). ' +
-    'Restores are applied in reverse order. Does not undo delete_file or shell changes.',
+    'Restores are applied in reverse order. Does not undo delete_file, rename_file, or shell-driven changes.',
   category: 'filesystem',
   riskLevel: 'medium',
   schema: {

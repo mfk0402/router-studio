@@ -5,6 +5,7 @@ import type {
   ToolApprovalResponse,
   ToolExecutionEvent,
   ToolPolicy,
+  ProductMode,
 } from '../../shared/types';
 
 interface ToolsState {
@@ -17,8 +18,8 @@ interface ToolsState {
   /** Tool execution events for the current chat (keyed by toolCallId) */
   executions: Map<string, ToolExecutionEvent>;
 
-  /** Load tool definitions from main process */
-  loadDefinitions: () => Promise<void>;
+  /** Load tool definitions from main process (optionally for a product-mode override). */
+  loadDefinitions: (productMode?: ProductMode) => Promise<void>;
   /** Set pending approval */
   setPendingApproval: (req: ToolApprovalRequest | null) => void;
   /** Respond to an approval request */
@@ -39,11 +40,11 @@ export const useTools = create<ToolsState>((set, get) => ({
   pendingApproval: null,
   executions: new Map(),
 
-  loadDefinitions: async () => {
+  loadDefinitions: async (productMode?: ProductMode) => {
     if (!window.api) return;
     set({ loading: true });
     try {
-      const defs = await window.api.tools.listDefinitions();
+      const defs = await window.api.tools.listDefinitions(productMode);
       set({ toolDefinitions: defs });
     } catch (e) {
       console.error('[tools] loadDefinitions failed:', e);

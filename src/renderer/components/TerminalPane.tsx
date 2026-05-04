@@ -8,27 +8,29 @@ import { useSettings } from '../store/settingsStore';
 import { useResolvedTheme } from '../hooks/useResolvedTheme';
 import ContextMenu from './ContextMenu';
 import type { ContextMenuItem } from './ContextMenu';
+import { parseFirstFileLocationInText } from '../lib/outputLinkParse';
+import { openOrRevealFileAtLocation } from '../lib/editorNavigation';
 
 const XTERM_DARK: ITheme = {
-  background: '#0b0d12',
-  foreground: '#e5e7eb',
-  cursor: '#7c9cff',
-  black: '#14171d',
-  red: '#ef4444',
-  green: '#4ade80',
-  yellow: '#fbbf24',
-  blue: '#7c9cff',
-  magenta: '#c084fc',
-  cyan: '#22d3ee',
-  white: '#e5e7eb',
-  brightBlack: '#4b5563',
-  brightRed: '#f87171',
-  brightGreen: '#86efac',
-  brightYellow: '#fde68a',
-  brightBlue: '#93c5fd',
-  brightMagenta: '#d8b4fe',
-  brightCyan: '#67e8f9',
-  brightWhite: '#f9fafb',
+  background: '#0B1220',
+  foreground: '#E6E8EB',
+  cursor: '#22D3EE',
+  black: '#111827',
+  red: '#EF4444',
+  green: '#22C55E',
+  yellow: '#F59E0B',
+  blue: '#6366FF',
+  magenta: '#A855F7',
+  cyan: '#22D3EE',
+  white: '#E6E8EB',
+  brightBlack: '#64748B',
+  brightRed: '#F87171',
+  brightGreen: '#4ADE80',
+  brightYellow: '#FBBF24',
+  brightBlue: '#818CF8',
+  brightMagenta: '#C084FC',
+  brightCyan: '#67E8F9',
+  brightWhite: '#F8FAFC',
 };
 
 const XTERM_LIGHT: ITheme = {
@@ -47,7 +49,7 @@ const XTERM_LIGHT: ITheme = {
   brightRed: '#ef4444',
   brightGreen: '#22c55e',
   brightYellow: '#ca8a04',
-  brightBlue: '#6366f1',
+  brightBlue: '#6366FF',
   brightMagenta: '#c026d3',
   brightCyan: '#06b6d4',
   brightWhite: '#020617',
@@ -219,8 +221,18 @@ export default function TerminalPane({ active }: { active: boolean }) {
     const term = termRef.current;
     const selection = term?.getSelection() ?? '';
     const hasSel = selection.length > 0;
+    const fileLink = hasSel ? parseFirstFileLocationInText(selection) : null;
 
     const items: ContextMenuItem[] = [
+      ...(fileLink
+        ? [
+            {
+              label: `Open ${fileLink.relativePath}:${fileLink.line}`,
+              action: () => void openOrRevealFileAtLocation(fileLink, projectRoot),
+            } satisfies ContextMenuItem,
+            { divider: true, label: '' } satisfies ContextMenuItem,
+          ]
+        : []),
       {
         label: 'Copy',
         shortcut: 'Ctrl/Cmd+Shift+C',
@@ -270,7 +282,7 @@ export default function TerminalPane({ active }: { active: boolean }) {
     ];
 
     setTerminalMenu({ x: e.clientX, y: e.clientY, items });
-  }, [pushLog]);
+  }, [pushLog, projectRoot]);
 
   return (
     <div

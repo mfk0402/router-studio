@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../store/appStore';
 import { useSettings } from '../store/settingsStore';
 import { sendChatCompletion } from '../lib/openrouterClient';
+import { getCompletionRouting } from '../lib/completionRouting';
 import type { NormalizedModel } from '../../shared/types';
 
 interface GitFile {
@@ -324,8 +325,10 @@ ${diffContent.slice(0, 4000)}${diffContent.length > 4000 ? '\n\n... (diff trunca
 
       let message = '';
 
+      const routing = getCompletionRouting(settings);
       await sendChatCompletion({
-        apiKey: settings.apiKey,
+        apiKey: routing.apiKey,
+        openAiBaseUrl: routing.openAiBaseUrl,
         model,
         messages: [
           { role: 'system', content: systemPrompt },
@@ -339,6 +342,8 @@ ${diffContent.slice(0, 4000)}${diffContent.length > 4000 ? '\n\n... (diff trunca
           strategy: 'router',
           freeModels: [] as NormalizedModel[],
         },
+        fallbackModel: settings.fallbackModel || undefined,
+        completionFallbackModels: settings.completionFallbackModels,
         onStreamChunk: (chunk) => {
           if (chunk.type === 'delta' && chunk.content) {
             message += chunk.content;

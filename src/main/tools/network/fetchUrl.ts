@@ -109,7 +109,7 @@ export const tool: RegisteredTool = {
   },
 };
 
-function extractTextFromHtml(html: string): string {
+export function extractTextFromHtml(html: string): string {
   // Remove script, style, and other non-content tags
   let text = html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')

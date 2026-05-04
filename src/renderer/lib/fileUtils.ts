@@ -182,18 +182,49 @@ export function extToLanguage(filename: string): string {
   return EXT_MAP[ext] ?? 'plaintext';
 }
 
+/** Directory names to omit entirely from AI tree context (contents never listed). */
+export const TREE_SKIP_DIR_NAMES = new Set(
+  [
+    'node_modules',
+    '.git',
+    'dist',
+    'build',
+    'out',
+    'release',
+    'coverage',
+    '.next',
+    '.nuxt',
+    '.output',
+    'target',
+    '__pycache__',
+    '.venv',
+    'venv',
+    '.turbo',
+    '.cache',
+    '.parcel-cache',
+    'Pods',
+    '.gradle',
+    'DerivedData',
+    '.idea',
+  ].map((s) => s.toLowerCase()),
+);
+
 /**
  * Build a compact project-tree summary string suitable for AI context.
- * Trims at maxLines and skips common heavy directories.
+ * Skips heavy folders, uses readable indentation (dirs end with `/`), caps lines.
  */
-export function summarizeTree(root: FileEntry | null, maxLines = 200): string {
+export function summarizeTree(root: FileEntry | null, maxLines = 160): string {
   if (!root) return '';
   const lines: string[] = [];
   function walk(node: FileEntry, depth: number): void {
     if (lines.length >= maxLines) return;
+    if (node.isDirectory && TREE_SKIP_DIR_NAMES.has(node.name.toLowerCase())) {
+      return;
+    }
     if (node.relativePath !== '.') {
-      const prefix = '  '.repeat(depth - 1);
-      lines.push(`${prefix}${node.isDirectory ? '[D] ' : '[F] '}${node.name}`);
+      const prefix = '  '.repeat(Math.max(0, depth - 1));
+      const label = node.isDirectory ? `${node.name}/` : node.name;
+      lines.push(`${prefix}${label}`);
     }
     if (node.children) {
       for (const child of node.children) {
@@ -204,7 +235,7 @@ export function summarizeTree(root: FileEntry | null, maxLines = 200): string {
   }
   walk(root, 0);
   if (lines.length >= maxLines) {
-    lines.push(`... (tree truncated at ${maxLines} lines)`);
+    lines.push(`… (tree truncated at ${maxLines} lines — use list_dir/read_file for more)`);
   }
   return lines.join('\n');
 }

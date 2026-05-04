@@ -17,6 +17,7 @@ export interface OfflineQueuedCompletion {
     freeModels: NormalizedModel[];
   };
   fallbackModel?: string;
+  completionFallbackModels?: string[];
 }
 
 function loadRaw(): OfflineQueuedCompletion[] {

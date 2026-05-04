@@ -38,7 +38,7 @@ export default function RulesModal() {
 
   return (
     <div className="modal-scrim fixed inset-0 z-40 flex items-center justify-center p-8">
-      <div className="flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border bg-bg-soft shadow-2xl">
+      <div className="glass-panel glass-modal-lg flex h-full w-full max-w-4xl flex-col overflow-hidden ds-transition">
         <div className="flex items-center justify-between border-b border-border-soft px-4 py-3">
           <div className="flex min-w-0 items-start gap-3">
             <span className="brand-mark-icon-wrap mt-0.5">

@@ -3,6 +3,32 @@ import type { BrowserWindow } from 'electron';
 
 let server: http.Server | null = null;
 
+/** Headers that are stripped before forwarding webhook payloads to the renderer. */
+const STRIPPED_HEADERS = new Set([
+  'authorization',
+  'cookie',
+  'set-cookie',
+  'x-api-key',
+  'x-auth-token',
+  'proxy-authorization',
+  'www-authenticate',
+  'proxy-authenticate',
+]);
+
+function stripHeaders(headers: http.IncomingHttpHeaders): Record<string, string> {
+  const safe: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (STRIPPED_HEADERS.has(key.toLowerCase())) continue;
+    // Only forward string values; skip multi-value arrays for simplicity.
+    if (typeof value === 'string') {
+      safe[key] = value;
+    } else if (Array.isArray(value)) {
+      safe[key] = value.join(', ');
+    }
+  }
+  return safe;
+}
+
 export function restartWebhookServer(
   win: BrowserWindow | null,
   enabled: boolean,
@@ -23,11 +49,11 @@ export function restartWebhookServer(
             path: url,
             method: req.method,
             body: body.slice(0, 50_000),
-            headers: { 'content-type': req.headers['content-type'] ?? '' },
+            headers: stripHeaders(req.headers),
             receivedAt: Date.now(),
           });
         } catch {
-          /* ignore */
+          /* window may be closing */
         }
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end('ok');

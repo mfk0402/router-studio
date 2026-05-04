@@ -26,8 +26,8 @@ export function SlashCommandMenu({ input, onSelect, visible }: Props) {
   if (!visible || matchingCommands.length === 0) return null;
 
   return (
-    <div className="absolute bottom-full left-0 mb-1 w-80 max-h-64 overflow-auto rounded-lg border border-[#444] bg-[#1e1e1e] shadow-lg">
-      <div className="px-3 py-1.5 text-[10px] text-fg-subtle border-b border-[#333] uppercase tracking-wider">
+    <div className="chrome-dropdown absolute bottom-full left-0 z-20 mb-1 w-80 max-h-64 overflow-auto py-0.5 ds-transition">
+      <div className="border-b border-border-soft px-3 py-1.5 text-[10px] uppercase tracking-wider text-fg-subtle">
         Commands
       </div>
       <div className="py-1">
@@ -35,7 +35,7 @@ export function SlashCommandMenu({ input, onSelect, visible }: Props) {
           <button
             key={cmd.name}
             onClick={() => onSelect(cmd)}
-            className="w-full px-3 py-2 text-left hover:bg-[#2a2a2a] flex items-start gap-2 group"
+            className="group flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-bg-hover"
           >
             <span className="text-base">{CATEGORY_ICONS[cmd.category] || '📌'}</span>
             <div className="flex-1 min-w-0">
@@ -58,9 +58,9 @@ export function SlashCommandMenu({ input, onSelect, visible }: Props) {
           </button>
         ))}
       </div>
-      <div className="px-3 py-1.5 text-[10px] text-fg-subtle border-t border-[#333]">
-        Press <kbd className="px-1 py-0.5 rounded bg-[#333] text-fg-muted">Tab</kbd> to complete,{' '}
-        <kbd className="px-1 py-0.5 rounded bg-[#333] text-fg-muted">Enter</kbd> to run
+      <div className="border-t border-border-soft px-3 py-1.5 text-[10px] text-fg-subtle">
+        Press <kbd className="rounded bg-bg-hover px-1 py-0.5 font-mono text-fg-muted">Tab</kbd> to complete,{' '}
+        <kbd className="rounded bg-bg-hover px-1 py-0.5 font-mono text-fg-muted">Enter</kbd> to run
       </div>
     </div>
   );

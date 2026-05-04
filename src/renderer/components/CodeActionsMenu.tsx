@@ -3,6 +3,7 @@ import * as monaco from 'monaco-editor';
 import { useApp } from '../store/appStore';
 import { useSettings } from '../store/settingsStore';
 import { sendChatCompletion } from '../lib/openrouterClient';
+import { getCompletionRouting } from '../lib/completionRouting';
 import type { NormalizedModel } from '../../shared/types';
 
 interface CodeActionsMenuProps {
@@ -198,8 +199,10 @@ ${codeContext}`;
 
       let result = '';
 
+      const routing = getCompletionRouting(settings);
       await sendChatCompletion({
-        apiKey: settings.apiKey,
+        apiKey: routing.apiKey,
+        openAiBaseUrl: routing.openAiBaseUrl,
         model,
         messages,
         temperature: 0.3,
@@ -210,6 +213,8 @@ ${codeContext}`;
           strategy: 'router',
           freeModels: [] as NormalizedModel[],
         },
+        fallbackModel: settings.fallbackModel || undefined,
+        completionFallbackModels: settings.completionFallbackModels,
         onStreamChunk: (chunk) => {
           if (chunk.type === 'delta' && chunk.content) {
             result += chunk.content;

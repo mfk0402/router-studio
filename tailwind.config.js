@@ -24,7 +24,12 @@ export default {
         accent: {
           DEFAULT: 'rgb(var(--color-accent-default) / <alpha-value>)',
           muted: 'rgb(var(--color-accent-muted) / <alpha-value>)',
+          fg: 'rgb(var(--color-accent-fg) / <alpha-value>)',
+          /** Doc `#22D3EE` — tab underline, neon highlights (router_studio_design_system.md §4, §15). */
+          electric: 'rgb(var(--color-accent-electric) / <alpha-value>)',
         },
+        cyan: 'rgb(var(--color-cyan) / <alpha-value>)',
+        violet: 'rgb(var(--color-violet) / <alpha-value>)',
         success: 'rgb(var(--color-success) / <alpha-value>)',
         warn: 'rgb(var(--color-warn) / <alpha-value>)',
         danger: 'rgb(var(--color-danger) / <alpha-value>)',

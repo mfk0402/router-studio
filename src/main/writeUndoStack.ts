@@ -62,3 +62,8 @@ export async function undoAllWriteSnapshots(
 export function writeUndoDepth(): number {
   return stack.length;
 }
+
+/** Paths in stack order (oldest → newest). Same path may repeat across edits. */
+export function getWriteUndoPathTrail(): string[] {
+  return stack.map((e) => e.relativePath);
+}

@@ -7,7 +7,8 @@ export const semanticSearchTool: RegisteredTool = {
   description:
     'Lexical codebase search (BM25 over overlapping source chunks; not embedding-based). ' +
     'Finds the most relevant file regions for a natural-language or keyword query. ' +
-    'Call reindex_codebase after large refactors if results seem stale.',
+    'The in-memory index is invalidated automatically after agent writes and when files change on disk; ' +
+    'the next search rebuilds lazily. Call reindex_codebase after huge refactors if you want an immediate full rebuild.',
   category: 'search',
   riskLevel: 'low',
   schema: {

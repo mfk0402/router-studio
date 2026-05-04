@@ -237,7 +237,7 @@ export default function MenuBar() {
         },
         { divider: true, label: '' },
         {
-          label: settings.zenMode ? 'Exit Zen Mode' : 'Zen Mode',
+          label: settings.zenMode ? 'Exit Zen Mode (fullscreen AI)' : 'Zen Mode (fullscreen AI)',
           shortcut: 'Escape',
           action: async () => {
             await updateSettings({ zenMode: !settings.zenMode });
@@ -388,7 +388,7 @@ export default function MenuBar() {
     <>
       <div
         ref={menuBarRef}
-        className="flex h-8 shrink-0 select-none items-center border-b border-border-soft bg-bg-elevated px-2 shadow-chrome"
+        className="chrome-menubar relative flex h-8 shrink-0 select-none items-center px-2 ds-transition"
       >
         {/* Logo */}
         <div className="mr-4 flex items-center gap-2">
@@ -413,7 +413,7 @@ export default function MenuBar() {
             </button>
 
             {openMenu === menu.label && (
-              <div className="absolute left-0 top-full z-50 min-w-52 rounded-lg border border-border-soft bg-bg-elevated py-1 shadow-float ring-1 ring-subtle">
+              <div className="chrome-dropdown absolute left-0 top-full z-50 min-w-52 py-1 ds-transition ring-1 ring-subtle">
                 {menu.items.map((item, i) =>
                   item.divider ? (
                     <div key={i} className="my-1 h-px bg-border-soft" />
@@ -470,7 +470,7 @@ function AboutModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-scrim fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
       <div
-        className="w-full max-w-md rounded-lg border border-border bg-bg-elevated p-6 shadow-2xl"
+        className="glass-panel glass-modal-lg w-full max-w-md p-6 ds-transition"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-6 flex items-center gap-4">
@@ -553,7 +553,7 @@ function FeaturesModal({ onClose }: { onClose: () => void }) {
         {
           name: 'Tool Calling',
           description:
-            '20+ built-in tools: read_file, write_file, edit_file, grep, run_shell, git_status, git_commit, fetch_url, run_tests, and more.',
+            'Built-in tools include read/write/edit file, grep, run_shell, git, fetch_url, lookup_npm_package, lookup_pypi_package, lookup_mdn_doc, run_tests, and more.',
         },
         {
           name: 'Tool Approval',
@@ -662,7 +662,8 @@ function FeaturesModal({ onClose }: { onClose: () => void }) {
         {
           name: 'Integrated Terminal',
           description:
-            'Full terminal emulator with ANSI color support. Run any shell command directly in the app.',
+            'ANSI-aware integrated shell: run commands in your project with streamed output. ' +
+            'Full-screen TUIs (vim, etc.) need a PTY and may not render like a standalone terminal.',
         },
         {
           name: 'AI Command Proposals',
@@ -712,7 +713,7 @@ function FeaturesModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-scrim fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="flex h-[80vh] w-full max-w-4xl overflow-hidden rounded-lg border border-border bg-bg-elevated shadow-2xl"
+        className="glass-panel glass-modal-lg flex h-[80vh] w-full max-w-4xl overflow-hidden ds-transition"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Sidebar */}
@@ -819,7 +820,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-scrim fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="w-full max-w-2xl rounded-lg border border-border bg-bg-elevated p-6 shadow-2xl"
+        className="glass-panel glass-modal-lg w-full max-w-2xl p-6 ds-transition"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-6 flex items-center justify-between gap-2">

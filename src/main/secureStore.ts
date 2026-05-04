@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { AppSettings } from '../shared/types.js';
 import { DEFAULT_SETTINGS } from '../shared/types.js';
+import { isAgentProtocolProductMode } from '../shared/productMode.js';
 
 /**
  * Local-only secure storage.
@@ -43,11 +44,20 @@ export async function getSettings(): Promise<AppSettings> {
   const file = path.join(userDataDir(), SETTINGS_FILENAME);
   const stored = await readJsonSafe<Partial<AppSettings>>(file, {});
   const apiKey = await secretGet('OPENROUTER_API_KEY');
-  return {
+  const merged: AppSettings = {
     ...DEFAULT_SETTINGS,
     ...stored,
     apiKey: apiKey ?? '',
   };
+  const storedPm = stored.productMode;
+  const hasStoredPm =
+    typeof storedPm === 'string' &&
+    ['chat', 'edit', 'agent', 'architect', 'review', 'ship'].includes(storedPm);
+  if (!hasStoredPm) {
+    merged.productMode = merged.agentMode ? 'agent' : 'chat';
+  }
+  merged.agentMode = isAgentProtocolProductMode(merged.productMode);
+  return merged;
 }
 
 export async function setSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
@@ -55,6 +65,14 @@ export async function setSettings(partial: Partial<AppSettings>): Promise<AppSet
   const file = path.join(userDataDir(), SETTINGS_FILENAME);
   const current = await readJsonSafe<Partial<AppSettings>>(file, {});
   const merged: Partial<AppSettings> = { ...DEFAULT_SETTINGS, ...current, ...partial };
+
+  if (partial.agentMode !== undefined && partial.productMode === undefined) {
+    merged.productMode = partial.agentMode ? 'agent' : 'chat';
+  }
+
+  const full = { ...DEFAULT_SETTINGS, ...merged } as AppSettings;
+  merged.productMode = full.productMode;
+  merged.agentMode = isAgentProtocolProductMode(full.productMode);
 
   if (typeof partial.apiKey === 'string') {
     await secretSet('OPENROUTER_API_KEY', partial.apiKey);
@@ -83,7 +101,8 @@ export async function secretGet(key: string): Promise<string | null> {
     const b64 = map[key];
     if (!b64) return null;
     return Buffer.from(b64, 'base64').toString('utf8');
-  } catch {
+  } catch (e) {
+    console.warn('[secureStore] Failed to read secret:', (e as Error).message);
     return null;
   }
 }

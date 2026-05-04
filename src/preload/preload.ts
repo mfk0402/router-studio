@@ -1,10 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  AgentFileSyncedPayload,
   AgentTask,
   AppSettings,
   AutosaveEntry,
   ChatCompletionRequest,
   IpcApi,
+  OpenRouterSpeechRequest,
+  OpenRouterVideoSubmitRequest,
+  ProductMode,
   Rule,
   ScheduledTaskDuePayload,
   SessionState,
@@ -14,6 +18,7 @@ import type {
   ToolApprovalResponse,
   ToolExecutionEvent,
   ToolExecuteMeta,
+  ToolInjectionWarningPayload,
   ToolPolicy,
   UpdateEvent,
   WebhookIncomingPayload,
@@ -70,10 +75,18 @@ const api: IpcApi = {
   openrouter: {
     testKey: (apiKey) => ipcRenderer.invoke('openrouter:testKey', apiKey),
     listModels: (apiKey) => ipcRenderer.invoke('openrouter:listModels', apiKey),
+    listOpenAiModels: (openAiBaseUrl, apiKey) =>
+      ipcRenderer.invoke('openrouter:listOpenAiModels', openAiBaseUrl, apiKey),
     chat: (req: ChatCompletionRequest) => ipcRenderer.invoke('openrouter:chat', req),
     chatStreamStart: (req: ChatCompletionRequest) =>
       ipcRenderer.invoke('openrouter:chatStreamStart', req),
     chatStreamCancel: (id) => ipcRenderer.invoke('openrouter:chatStreamCancel', id),
+    videoSubmit: (apiKey: string, req: OpenRouterVideoSubmitRequest) =>
+      ipcRenderer.invoke('openrouter:videoSubmit', apiKey, req),
+    videoPoll: (apiKey: string, pollingUrl: string) =>
+      ipcRenderer.invoke('openrouter:videoPoll', apiKey, pollingUrl),
+    speech: (apiKey: string, req: OpenRouterSpeechRequest) =>
+      ipcRenderer.invoke('openrouter:speech', apiKey, req),
   },
   terminal: {
     start: (opts) => ipcRenderer.invoke('terminal:start', opts),
@@ -96,8 +109,15 @@ const api: IpcApi = {
     save: (task: AgentTask) => ipcRenderer.invoke('tasks:save', task),
     delete: (id: string) => ipcRenderer.invoke('tasks:delete', id),
   },
+  checkpoints: {
+    list: () => ipcRenderer.invoke('checkpoints:list'),
+    get: (id: string) => ipcRenderer.invoke('checkpoints:get', id),
+    restore: (id: string) => ipcRenderer.invoke('checkpoints:restore', id),
+    delete: (id: string) => ipcRenderer.invoke('checkpoints:delete', id),
+  },
   tools: {
-    listDefinitions: () => ipcRenderer.invoke('tools:listDefinitions'),
+    listDefinitions: (productMode?: ProductMode) =>
+      ipcRenderer.invoke('tools:listDefinitions', productMode),
     execute: (
       toolName: string,
       args: Record<string, unknown>,
@@ -134,6 +154,11 @@ const api: IpcApi = {
       ipcRenderer.on('tools:approval', listener);
       return () => ipcRenderer.removeListener('tools:approval', listener);
     },
+    onToolInjectionWarning: (cb: (evt: ToolInjectionWarningPayload) => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, evt: ToolInjectionWarningPayload) => cb(evt);
+      ipcRenderer.on('tools:injectionWarning', listener);
+      return () => ipcRenderer.removeListener('tools:injectionWarning', listener);
+    },
     onToolExecution: (cb: (evt: ToolExecutionEvent) => void) => {
       const listener = (_e: Electron.IpcRendererEvent, evt: ToolExecutionEvent) => cb(evt);
       ipcRenderer.on('tools:execution', listener);
@@ -155,6 +180,17 @@ const api: IpcApi = {
         cb(payload);
       ipcRenderer.on('scheduled:due', listener);
       return () => ipcRenderer.removeListener('scheduled:due', listener);
+    },
+    onAgentFileSynced: (cb: (payload: AgentFileSyncedPayload) => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, payload: AgentFileSyncedPayload) =>
+        cb(payload);
+      ipcRenderer.on('workspace:agentFileSynced', listener);
+      return () => ipcRenderer.removeListener('workspace:agentFileSynced', listener);
+    },
+    onProjectFsChanged: (cb: () => void) => {
+      const listener = () => cb();
+      ipcRenderer.on('workspace:projectFsChanged', listener);
+      return () => ipcRenderer.removeListener('workspace:projectFsChanged', listener);
     },
   },
   respondToolApproval: (response: ToolApprovalResponse) =>
@@ -204,7 +240,9 @@ const api: IpcApi = {
 
 try {
   contextBridge.exposeInMainWorld('api', api);
-  console.log('[preload] window.api exposed');
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[preload] window.api exposed');
+  }
 } catch (e) {
   console.error('[preload] failed to expose window.api', e);
 }

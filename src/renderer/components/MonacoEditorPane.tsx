@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Editor, { loader, type OnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
@@ -9,6 +9,7 @@ import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 import { useApp } from '../store/appStore';
 import { useSettings } from '../store/settingsStore';
 import { useResolvedTheme } from '../hooks/useResolvedTheme';
+import { useShallow } from 'zustand/react/shallow';
 import { registerGhostInlineCompletions } from '../lib/ghostInlineCompletion';
 import { registerUserSnippetCompletions } from '../lib/userSnippetsMonaco';
 import InlineEditWidget from './InlineEditWidget';
@@ -32,6 +33,43 @@ self.MonacoEnvironment = {
 // Use the npm-bundled monaco instance so nothing is fetched from a CDN.
 loader.config({ monaco });
 
+/** Router Studio design kit — Monaco chrome aligned to app surfaces (#0B1220 / #111827, cyan cursor). */
+monaco.editor.defineTheme('router-studio-dark', {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [{ token: 'comment', foreground: '64748b', fontStyle: 'italic' }],
+  colors: {
+    'editor.background': '#0B1220',
+    'editor.foreground': '#E6E8EB',
+    'editorLineNumber.foreground': '#64748B',
+    'editorLineNumber.activeForeground': '#94A3B8',
+    'editorCursor.foreground': '#22D3EE',
+    'editor.selectionBackground': '#6366FF40',
+    'editor.inactiveSelectionBackground': '#6366FF22',
+    'editor.selectionHighlightBackground': '#6366FF28',
+    'editor.lineHighlightBackground': '#161C2A',
+    'editor.lineHighlightBorder': '#26304122',
+    'editorGutter.background': '#111827',
+    'editorGutter.modifiedBackground': '#6366FF33',
+    'editorGutter.addedBackground': '#22C55E44',
+    'editorGutter.deletedBackground': '#EF444444',
+    'editorWhitespace.foreground': '#33415566',
+    'editorIndentGuide.background': '#26304133',
+    'editorIndentGuide.activeBackground': '#26304166',
+    'editorBracketMatch.background': '#6366FF22',
+    'editorBracketMatch.border': '#22D3EE66',
+    'scrollbar.shadow': '#00000000',
+    'scrollbarSlider.background': '#26304188',
+    'scrollbarSlider.hoverBackground': '#263041BB',
+    'scrollbarSlider.activeBackground': '#263041DD',
+    'minimap.background': '#111827',
+    'minimap.selectionHighlight': '#6366FF66',
+    'minimapSlider.background': '#6366FF33',
+    'minimapSlider.hoverBackground': '#6366FF55',
+    'minimapSlider.activeBackground': '#6366FF77',
+  },
+});
+
 interface InlineEditState {
   isOpen: boolean;
   selection: monaco.Selection | null;
@@ -40,8 +78,13 @@ interface InlineEditState {
 
 export default function MonacoEditorPane() {
   const uiTheme = useResolvedTheme();
-  const activeTabPath = useApp((s) => s.activeTabPath);
-  const tabs = useApp((s) => s.tabs);
+  const tab = useApp(
+    useShallow((s) => {
+      const p = s.activeTabPath;
+      if (!p) return null;
+      return s.tabs.find((t) => t.relativePath === p) ?? null;
+    }),
+  );
   const updateTabContent = useApp((s) => s.updateTabContent);
   const setSelectedCode = useApp((s) => s.setSelectedCode);
   const setEditorInstance = useApp((s) => s.setEditorInstance);
@@ -50,8 +93,67 @@ export default function MonacoEditorPane() {
   const formatOnSave = useSettings((s) => s.settings.formatOnSave);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 
+  const editorRevealRequest = useApp((s) => s.editorRevealRequest);
+  const clearEditorRevealRequest = useApp((s) => s.clearEditorRevealRequest);
+
   const editorSettings = useSettings((s) => s.settings.editor);
-  const tab = tabs.find((t) => t.relativePath === activeTabPath) ?? null;
+
+  const formatOnSaveRef = useRef(formatOnSave);
+  formatOnSaveRef.current = formatOnSave;
+  const pushLogRef = useRef(pushLog);
+  pushLogRef.current = pushLog;
+  const markTabSavedRef = useRef(markTabSaved);
+  markTabSavedRef.current = markTabSaved;
+
+  useEffect(() => {
+    if (!editorRevealRequest || !tab || tab.relativePath !== editorRevealRequest.relativePath) {
+      return;
+    }
+    const ed = editorRef.current;
+    if (!ed) return;
+    const req = editorRevealRequest;
+    let cancelled = false;
+    let handle = 0;
+    let attempts = 0;
+
+    const tryOnce = () => {
+      const model = ed.getModel();
+      if (!model || model.isDisposed()) return false;
+      const line = Math.max(1, Math.min(req.lineNumber, model.getLineCount()));
+      const col = Math.max(1, req.column ?? 1);
+      ed.revealLineInCenter(line);
+      ed.setPosition({ lineNumber: line, column: col });
+      ed.focus();
+      return true;
+    };
+
+    if (tryOnce()) {
+      clearEditorRevealRequest();
+      return;
+    }
+
+    const loop = () => {
+      handle = window.setTimeout(() => {
+        if (cancelled) return;
+        if (tryOnce()) {
+          clearEditorRevealRequest();
+          return;
+        }
+        attempts += 1;
+        if (attempts >= 18) {
+          clearEditorRevealRequest();
+          return;
+        }
+        loop();
+      }, 45);
+    };
+    loop();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [editorRevealRequest, tab, clearEditorRevealRequest]);
 
   // Inline edit state
   const [inlineEdit, setInlineEdit] = useState<InlineEditState>({
@@ -176,6 +278,11 @@ export default function MonacoEditorPane() {
     setCodeActionsMenu(null);
     editorRef.current?.focus();
   }, []);
+
+  const openInlineEditRef = useRef(openInlineEdit);
+  openInlineEditRef.current = openInlineEdit;
+  const openCodeActionsMenuRef = useRef(openCodeActionsMenu);
+  openCodeActionsMenuRef.current = openCodeActionsMenu;
 
   /** Right-click menu: built here so we can fire from DOM capture (Monaco default menu is disabled). */
   const openEditorContextMenu = useCallback(
@@ -332,108 +439,100 @@ export default function MonacoEditorPane() {
     [tab, updateTabContent],
   );
 
-  const handleMount: OnMount = (editor, monacoInstance) => {
-    editorRef.current = editor;
-    setEditorInstance(editor);
+  const handleMount = useCallback<OnMount>(
+    (editor, monacoInstance) => {
+      editorRef.current = editor;
+      setEditorInstance(editor);
 
-    registerGhostInlineCompletions(monacoInstance);
-    registerUserSnippetCompletions(monacoInstance);
+      registerGhostInlineCompletions(monacoInstance);
+      registerUserSnippetCompletions(monacoInstance);
 
-    if (!editorHoverDisposable) {
-      const hoverSel: monaco.languages.LanguageSelector = [
-        'typescript',
-        'javascript',
-        'javascriptreact',
-        'typescriptreact',
-        'python',
-        'rust',
-        'go',
-        'json',
-        'html',
-        'css',
-        'markdown',
-      ];
-      editorHoverDisposable = monacoInstance.languages.registerHoverProvider(hoverSel, {
-        provideHover(model, pos) {
-          const w = model.getWordAtPosition(pos);
-          if (!w) {
-            return { contents: [{ value: `_Line ${pos.lineNumber}_` }] };
-          }
-          return {
-            contents: [
-              {
-                value:
-                  `**${w.word}** · \`${model.getLanguageId()}\`\n\n` +
-                  'Router Studio rich hover: word under cursor and language id. ' +
-                  'Extend with LSP or project docs in later releases.',
-              },
-            ],
-          };
-        },
-      });
-    }
-
-    editor.onDidChangeCursorSelection(() => {
-      const model = editor.getModel();
-      const sel = editor.getSelection();
-      if (model && sel) {
-        const text = model.getValueInRange(sel);
-        setSelectedCode(text);
+      if (!editorHoverDisposable) {
+        const hoverSel: monaco.languages.LanguageSelector = [
+          'typescript',
+          'javascript',
+          'javascriptreact',
+          'typescriptreact',
+          'python',
+          'rust',
+          'go',
+          'json',
+          'html',
+          'css',
+          'markdown',
+        ];
+        editorHoverDisposable = monacoInstance.languages.registerHoverProvider(hoverSel, {
+          provideHover(model, pos) {
+            const w = model.getWordAtPosition(pos);
+            if (!w) {
+              return { contents: [{ value: `_Line ${pos.lineNumber}_` }] };
+            }
+            return {
+              contents: [
+                {
+                  value:
+                    `**${w.word}** · \`${model.getLanguageId()}\`\n\n` +
+                    'Router Studio rich hover: word under cursor and language id. ' +
+                    'Extend with LSP or project docs in later releases.',
+                },
+              ],
+            };
+          },
+        });
       }
-    });
 
-    editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, async () => {
-      const state = useApp.getState();
-      const active = state.tabs.find((t) => t.relativePath === state.activeTabPath);
-      if (!active) return;
-      try {
-        // Format on save if enabled. Monaco ships built-in formatters for JSON,
-        // HTML, CSS, TS/JS; unsupported languages become a no-op silently.
-        if (formatOnSave) {
-          const action = editor.getAction('editor.action.formatDocument');
-          if (action) {
-            try {
-              await action.run();
-            } catch {
-              // ignore formatter errors (e.g., no formatter registered)
+      editor.onDidChangeCursorSelection(() => {
+        const model = editor.getModel();
+        const sel = editor.getSelection();
+        if (model && sel) {
+          const text = model.getValueInRange(sel);
+          setSelectedCode(text);
+        }
+      });
+
+      editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, async () => {
+        const state = useApp.getState();
+        const active = state.tabs.find((t) => t.relativePath === state.activeTabPath);
+        if (!active) return;
+        try {
+          if (formatOnSaveRef.current) {
+            const action = editor.getAction('editor.action.formatDocument');
+            if (action) {
+              try {
+                await action.run();
+              } catch {
+                /* no formatter */
+              }
             }
           }
+          const model = editor.getModel();
+          const content = model ? model.getValue() : active.content;
+          await window.api.fs.writeFile(active.relativePath, content);
+          markTabSavedRef.current(active.relativePath);
+          pushLogRef.current('info', `Saved ${active.relativePath}`);
+        } catch (e) {
+          pushLogRef.current('error', `Save failed: ${(e as Error).message}`);
         }
-        const model = editor.getModel();
-        const content = model ? model.getValue() : active.content;
-        await window.api.fs.writeFile(active.relativePath, content);
-        markTabSaved(active.relativePath);
-        pushLog('info', `Saved ${active.relativePath}`);
-      } catch (e) {
-        pushLog('error', `Save failed: ${(e as Error).message}`);
-      }
-    });
+      });
 
-    // Shift+Alt+F — format document (VS Code parity).
-    editor.addCommand(
-      monacoInstance.KeyMod.Shift | monacoInstance.KeyMod.Alt | monacoInstance.KeyCode.KeyF,
-      () => {
-        const action = editor.getAction('editor.action.formatDocument');
-        if (action) void action.run();
-      },
-    );
+      editor.addCommand(
+        monacoInstance.KeyMod.Shift | monacoInstance.KeyMod.Alt | monacoInstance.KeyCode.KeyF,
+        () => {
+          const action = editor.getAction('editor.action.formatDocument');
+          if (action) void action.run();
+        },
+      );
 
-    // Ctrl+K — inline edit with AI (Cursor-style feature).
-    editor.addCommand(
-      monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyK,
-      () => {
-        openInlineEdit();
-      },
-    );
+      editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyK, () => {
+        openInlineEditRef.current();
+      });
 
-    // Ctrl+. — open code actions menu (VS Code parity).
-    editor.addCommand(
-      monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.Period,
-      () => {
-        openCodeActionsMenu();
-      },
-    );
-  };
+      editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.Period, () => {
+        openCodeActionsMenuRef.current();
+      });
+    },
+    [setEditorInstance, setSelectedCode],
+  );
 
   useEffect(() => {
     return () => {
@@ -442,35 +541,13 @@ export default function MonacoEditorPane() {
     };
   }, [setEditorInstance]);
 
-  useEffect(() => {
-    editorRef.current?.updateOptions({
-      inlineSuggest: { enabled: editorSettings?.ghostTextEnabled ?? false },
-    });
-  }, [editorSettings?.ghostTextEnabled]);
-
-  if (!tab) return null;
-
-  return (
-    <div
-      className="relative h-full w-full"
-      onContextMenuCapture={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        openEditorContextMenu(e.clientX, e.clientY);
-      }}
-    >
-      <Editor
-        path={tab.relativePath}
-        height="100%"
-        theme={uiTheme === "light" ? "vs-light" : "vs-dark"}
-        language={tab.language}
-        value={tab.content}
-        onChange={handleChange}
-        onMount={handleMount}
-        options={{
+  const editorOptions = useMemo(
+    (): monaco.editor.IStandaloneEditorConstructionOptions => ({
           // Font settings (from user preferences)
           fontSize: editorSettings?.fontSize ?? 13,
-          fontFamily: editorSettings?.fontFamily ?? "'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace",
+          fontFamily:
+            editorSettings?.fontFamily ??
+            "'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace",
           fontLigatures: editorSettings?.fontLigatures ?? true,
           fontWeight: '400',
 
@@ -584,9 +661,34 @@ export default function MonacoEditorPane() {
 
           // Fixed widgets
           fixedOverflowWidgets: true,
-          // App-owned context menu (wrapper onContextMenuCapture; native menu disabled)
           contextmenu: false,
-        }}
+
+          largeFileOptimizations: true,
+          maxTokenizationLineLength: 20_000,
+    }),
+    [editorSettings],
+  );
+
+  if (!tab) return null;
+
+  return (
+    <div
+      className="relative h-full w-full"
+      onContextMenuCapture={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openEditorContextMenu(e.clientX, e.clientY);
+      }}
+    >
+      <Editor
+        path={tab.relativePath}
+        height="100%"
+        theme={uiTheme === 'light' ? 'vs-light' : 'router-studio-dark'}
+        language={tab.language}
+        value={tab.content}
+        onChange={handleChange}
+        onMount={handleMount}
+        options={editorOptions}
       />
 
       {/* Inline Edit Widget (Ctrl+K) */}

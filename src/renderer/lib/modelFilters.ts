@@ -84,6 +84,8 @@ const VIDEO_GEN_HINTS = [
   'luma',
   'hunyuan-video',
   'wan-video',
+  'seedance',
+  'wan-2',
 ];
 
 const AUDIO_HINTS = [
@@ -102,13 +104,65 @@ const AUDIO_HINTS = [
 
 const FAST_HINTS = ['flash', 'haiku', 'mini', 'lite', 'nano', 'turbo', 'small'];
 
+/** Lowest positive numeric value in OpenRouter video `pricing_skus` (USD-ish per unit). */
+function minPositiveVideoSku(skus: Record<string, string> | undefined): number | null {
+  if (!skus) return null;
+  let min = Infinity;
+  for (const v of Object.values(skus)) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0 && n < min) min = n;
+  }
+  return Number.isFinite(min) && min < Infinity ? min : null;
+}
+
+function maxPositiveVideoSku(skus: Record<string, string> | undefined): number | null {
+  if (!skus) return null;
+  let max = 0;
+  for (const v of Object.values(skus)) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0 && n > max) max = n;
+  }
+  return max > 0 ? max : null;
+}
+
+/** Format a single OpenRouter video SKU dollar amount for display. */
+function fmtVideoSkuDollar(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  if (n >= 0.01) return n.toFixed(3);
+  if (n >= 0.001) return n.toFixed(4);
+  return n.toFixed(6);
+}
+
+/**
+ * Human-readable OpenRouter video pricing (per-second, resolution tiers, video tokens — not chat tokens).
+ * Returns null when SKUs are missing.
+ */
+export function formatVideoSkuPriceSummary(raw: OpenRouterModelRaw): string | null {
+  const skus = raw.video_pricing_skus;
+  if (!skus || Object.keys(skus).length === 0) return null;
+  const lo = minPositiveVideoSku(skus);
+  const hi = maxPositiveVideoSku(skus);
+  if (lo == null || lo <= 0) return null;
+  if (hi == null || Math.abs(hi - lo) < 1e-9) return `from ~$${fmtVideoSkuDollar(lo)} (video API)`;
+  return `~$${fmtVideoSkuDollar(lo)}–${fmtVideoSkuDollar(hi)} (video API)`;
+}
+
 export function normalizeModel(raw: OpenRouterModelRaw): NormalizedModel {
   const id = raw.id;
   const name = raw.name ?? raw.id;
   const description = raw.description ?? '';
   const contextLength = raw.context_length ?? raw.top_provider?.context_length ?? 0;
-  const pricingPrompt = parsePrice(raw.pricing?.prompt);
-  const pricingCompletion = parsePrice(raw.pricing?.completion);
+  let pricingPrompt = parsePrice(raw.pricing?.prompt);
+  let pricingCompletion = parsePrice(raw.pricing?.completion);
+
+  const videoSkuMin = minPositiveVideoSku(raw.video_pricing_skus);
+  if (videoSkuMin != null && videoSkuMin > 0) {
+    // Video catalog bills by the second / output unit, not chat tokens — synthesize fields so
+    // the picker is not labeled "free" and sort/tier reflect relative cost.
+    pricingPrompt = videoSkuMin / 50_000;
+    pricingCompletion = videoSkuMin / 10_000;
+  }
+
   const inPricePerM = pricingPrompt * 1_000_000;
   const outPricePerM = pricingCompletion * 1_000_000;
   const avgPricePerM = (inPricePerM + outPricePerM) / 2;
@@ -117,7 +171,7 @@ export function normalizeModel(raw: OpenRouterModelRaw): NormalizedModel {
   const nameLower = name.toLowerCase();
   const descLower = description.toLowerCase();
 
-  const isFree =
+  const looksLikeOpenRouterFree =
     (pricingPrompt === 0 && pricingCompletion === 0) ||
     idLower.includes(':free') ||
     nameLower.includes('(free)');
@@ -130,16 +184,25 @@ export function normalizeModel(raw: OpenRouterModelRaw): NormalizedModel {
     nameLower,
     descLower,
     contextLength,
-    isFree,
     raw,
+    looksLikeOpenRouterFree,
   });
 
+  const isSpecialModality =
+    categories.includes('video-gen') || categories.includes('image-gen');
+  const isFree = !isSpecialModality && looksLikeOpenRouterFree;
+
   const priceTier = detectPriceTier(avgPricePerM, isFree);
+
+  const outputModalities = (raw.architecture?.output_modalities ?? []).map((m) =>
+    String(m).toLowerCase(),
+  );
 
   return {
     id,
     name,
     description,
+    outputModalities,
     contextLength,
     pricingPrompt,
     pricingCompletion,
@@ -155,7 +218,8 @@ export function normalizeModel(raw: OpenRouterModelRaw): NormalizedModel {
 }
 
 function detectPriceTier(avgPricePerM: number, isFree: boolean): PriceTier {
-  if (isFree || !Number.isFinite(avgPricePerM) || avgPricePerM <= 0) return 'free';
+  if (isFree) return 'free';
+  if (!Number.isFinite(avgPricePerM) || avgPricePerM <= 0) return 'mid';
   if (avgPricePerM < 0.5) return 'cheap';
   if (avgPricePerM < 5) return 'mid';
   return 'premium';
@@ -174,10 +238,10 @@ function detectCategories(args: {
   nameLower: string;
   descLower: string;
   contextLength: number;
-  isFree: boolean;
+  looksLikeOpenRouterFree: boolean;
   raw: OpenRouterModelRaw;
 }): ModelCategory[] {
-  const { idLower, nameLower, descLower, contextLength, isFree, raw } = args;
+  const { idLower, nameLower, descLower, contextLength, looksLikeOpenRouterFree, raw } = args;
   const hay = `${idLower} ${nameLower} ${descLower}`;
   const cats = new Set<ModelCategory>();
 
@@ -222,7 +286,8 @@ function detectCategories(args: {
   if (FAST_HINTS.some((h) => hay.includes(h))) cats.add('fast');
 
   if (contextLength >= 128_000) cats.add('large-context');
-  if (isFree) cats.add('free');
+  const excludeFreeCategory = cats.has('video-gen') || cats.has('image-gen');
+  if (!excludeFreeCategory && looksLikeOpenRouterFree) cats.add('free');
 
   // Only assign 'chat' when it's a plain text→text model that isn't already
   // obviously specialized. This keeps the Chat bucket meaningful.

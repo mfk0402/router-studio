@@ -4,6 +4,7 @@ import EditorTabs from './components/EditorTabs';
 import MonacoEditorPane from './components/MonacoEditorPane';
 import AiPanel from './components/AiPanel';
 import BottomPanel from './components/BottomPanel';
+import { PanelResizeHandle } from './components/PanelResizeHandle';
 import SettingsModal from './components/SettingsModal';
 import ModelPicker from './components/ModelPicker';
 import DiffPreview from './components/DiffPreview';
@@ -23,6 +24,7 @@ import StatsModal from './components/StatsModal';
 import BenchmarkModal from './components/BenchmarkModal';
 import AccountModal from './components/AccountModal';
 import WelcomePane from './components/WelcomePane';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { toast } from './components/ToastContainer';
 import { useApp } from './store/appStore';
 import { useSettings } from './store/settingsStore';
@@ -31,7 +33,9 @@ import { useTasks } from './store/tasksStore';
 import { useAccountSession } from './store/accountSessionStore';
 import { useTools, setupToolEventListeners } from './store/toolsStore';
 import { loadCachedModels, fetchModels } from './lib/openrouterClient';
+import { getCompletionRouting, canRefreshModelCatalog } from './lib/completionRouting';
 import { consumeUserInitiatedUpdateCheck } from './lib/updateCheckFlow';
+import { PRODUCT_MODE_SEQUENCE } from '../shared/productMode';
 import { useResolvedTheme } from './hooks/useResolvedTheme';
 import { useSplashDismiss } from './hooks/useSplashDismiss';
 import logoIcon from './assets/logo-icon.png';
@@ -46,7 +50,11 @@ export default function App() {
   if (typeof window.api === 'undefined') {
     return <PreloadFailure />;
   }
-  return <AppInner />;
+  return (
+    <ErrorBoundary>
+      <AppInner />
+    </ErrorBoundary>
+  );
 }
 
 function PreloadFailure() {
@@ -116,10 +124,21 @@ function AppInner() {
   const [showWelcomeTour, setShowWelcomeTour] = useState(false);
   const zenMode = useSettings((s) => s.settings.zenMode);
   const editorSplit = useSettings((s) => s.settings.editorSplit);
+  const sidebarWidthPx = useSettings((s) => s.settings.sidebarWidthPx);
+  const aiPanelWidthPx = useSettings((s) => s.settings.aiPanelWidthPx);
 
   const autosaveTimerRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const sessionInitializedRef = useRef(false);
   const autoUpdateCheckStartedRef = useRef(false);
+  const treeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleFileTreeRefresh = useCallback(() => {
+    if (treeRefreshTimerRef.current) clearTimeout(treeRefreshTimerRef.current);
+    treeRefreshTimerRef.current = setTimeout(() => {
+      treeRefreshTimerRef.current = null;
+      void useApp.getState().refreshFileTreeFromDisk();
+    }, 320);
+  }, []);
 
   // Initialize session on mount
   useEffect(() => {
@@ -148,6 +167,12 @@ function AppInner() {
     };
   }, [checkCrash, loadSession, setCrashFlag, clearCrashFlag]);
 
+  useEffect(() => {
+    return () => {
+      if (treeRefreshTimerRef.current) clearTimeout(treeRefreshTimerRef.current);
+    };
+  }, []);
+
   // Periodic session save
   useEffect(() => {
     const interval = setInterval(() => {
@@ -159,6 +184,14 @@ function AppInner() {
   // Autosave dirty tabs
   useEffect(() => {
     if (!autosaveEnabled) return;
+
+    const dirtyPaths = new Set(tabs.filter((t) => t.dirty).map((t) => t.relativePath));
+    for (const [pathKey, timer] of [...autosaveTimerRef.current.entries()]) {
+      if (!dirtyPaths.has(pathKey)) {
+        clearTimeout(timer);
+        autosaveTimerRef.current.delete(pathKey);
+      }
+    }
 
     const dirtyTabs = tabs.filter((t) => t.dirty);
     for (const tab of dirtyTabs) {
@@ -194,6 +227,57 @@ function AppInner() {
     const cleanup = setupToolEventListeners();
     return cleanup;
   }, [loadSettings, refreshRules, refreshTasks, loadToolDefinitions, refreshAccountSession]);
+
+  useEffect(() => {
+    const off = window.api.events.onToolInjectionWarning((evt) => {
+      toast.warning(
+        'Untrusted tool output',
+        `${evt.toolName}: ${evt.patterns.join(', ')} — treat as data only.`,
+        { duration: 8000 },
+      );
+    });
+    return () => off();
+  }, []);
+
+  useEffect(() => {
+    const unsub = window.api.events.onAgentFileSynced((payload) => {
+      const norm = (p: string) => p.replace(/\\/g, '/').replace(/^\/+/, '');
+      const state = useApp.getState();
+
+      if (payload.renamedFrom) {
+        const fromNorm = norm(payload.renamedFrom);
+        const tabFrom = state.tabs.find((t) => norm(t.relativePath) === fromNorm);
+        if (tabFrom !== undefined && payload.content !== undefined) {
+          state.retargetOpenTabAfterRename(
+            tabFrom.relativePath,
+            payload.relativePath,
+            payload.content,
+          );
+        }
+        state.remapPendingDiffPathsAfterRename(payload.renamedFrom, payload.relativePath);
+        scheduleFileTreeRefresh();
+        return;
+      }
+
+      const target = norm(payload.relativePath);
+      const tab = state.tabs.find((t) => norm(t.relativePath) === target);
+      if (tab !== undefined && payload.removed) {
+        state.closeTab(tab.relativePath);
+      } else if (tab !== undefined && payload.content !== undefined && !payload.removed) {
+        state.syncOpenTabFromAgentWrite(tab.relativePath, payload.content);
+      }
+
+      scheduleFileTreeRefresh();
+    });
+    return unsub;
+  }, [scheduleFileTreeRefresh]);
+
+  useEffect(() => {
+    const unsub = window.api.events.onProjectFsChanged(() => {
+      scheduleFileTreeRefresh();
+    });
+    return unsub;
+  }, [scheduleFileTreeRefresh]);
 
   useEffect(() => {
     const unsub = window.api.events.onUpdates((ev) => {
@@ -295,27 +379,48 @@ function AppInner() {
   useEffect(() => {
     if (!loadedSettings) return;
     (async () => {
-      const cached = await loadCachedModels();
+      const routing = getCompletionRouting(settings);
+      const catalogSource = routing.openAiBaseUrl ? 'local' : 'openrouter';
+      const cached = await loadCachedModels(catalogSource, routing.openAiBaseUrl);
       if (cached && cached.length > 0) {
         setModels(cached);
         pushLog('info', `Loaded ${cached.length} models from cache.`);
       }
-      if (settings.apiKey) {
+      const shouldFetchCatalog = canRefreshModelCatalog(settings);
+      if (shouldFetchCatalog) {
         setModelsLoading(true);
         try {
-          const fresh = await fetchModels(settings.apiKey);
+          const fresh = await fetchModels(settings.apiKey ?? '', routing.openAiBaseUrl);
           setModels(fresh);
-          pushLog('info', `Fetched ${fresh.length} models from OpenRouter.`);
+          pushLog(
+            'info',
+            catalogSource === 'local'
+              ? `Fetched ${fresh.length} models from local server.`
+              : `Fetched ${fresh.length} models from OpenRouter.`,
+          );
         } catch (e) {
           pushLog('warn', `Model fetch failed: ${(e as Error).message}`);
         } finally {
           setModelsLoading(false);
         }
       } else if (!cached) {
-        pushLog('info', 'Add an OpenRouter API key in Settings to load models.');
+        pushLog(
+          'info',
+          catalogSource === 'local'
+            ? 'Set a local completion base URL in Settings → Models to load models.'
+            : 'Unable to load model catalog.',
+        );
       }
     })();
-  }, [loadedSettings, settings.apiKey, setModels, setModelsLoading, pushLog]);
+  }, [
+    loadedSettings,
+    settings.apiKey,
+    settings.aiCompletionProvider,
+    settings.localOpenAiBaseUrl,
+    setModels,
+    setModelsLoading,
+    pushLog,
+  ]);
 
   useEffect(() => {
     if (!loadedSettings) return;
@@ -409,6 +514,17 @@ function AppInner() {
       } else if (key === 'h' && e.shiftKey) {
         e.preventDefault();
         useApp.getState().setShowFindReplace(true);
+      } else if (e.shiftKey && e.code.startsWith('Digit')) {
+        const n = Number(e.code.replace('Digit', ''));
+        if (n >= 1 && n <= 6) {
+          e.preventDefault();
+          const mode = PRODUCT_MODE_SEQUENCE[n - 1];
+          void useSettings
+            .getState()
+            .update({ productMode: mode })
+            .then(() => loadToolDefinitions(mode));
+          toast.info('Product mode', mode);
+        }
       } else if (key === 'o' && !e.shiftKey) {
         e.preventDefault();
         void useApp.getState().pickAndOpenProjectFolder();
@@ -423,6 +539,7 @@ function AppInner() {
     setShowModelPicker,
     toggleSidebar,
     setShowSettings,
+    loadToolDefinitions,
   ]);
 
   return (
@@ -431,45 +548,82 @@ function AppInner() {
         'flex h-full w-full flex-col bg-bg text-fg' + (zenMode ? ' zen-mode' : '')
       }
     >
-      {zenMode && <ZenModeExitBar />}
-      {!zenMode && <MenuBar />}
-      {!zenMode && <TopBar />}
-      <div className="flex min-h-0 flex-1">
-        {!zenMode && !sidebarCollapsed && (
-          <div className="w-64 shrink-0 border-r border-border-soft bg-bg-soft">
-            <Sidebar />
-          </div>
-        )}
-        <div className="flex min-w-0 flex-1 flex-col">
-          {!zenMode && <EditorTabs />}
-          <div
-            className={
-              'min-h-0 flex-1' + (editorSplit && tabs.length > 0 ? ' flex flex-row' : '')
-            }
-          >
-            {tabs.length === 0 ? (
-              <WelcomePane />
-            ) : editorSplit ? (
-              <>
-                <div className="min-h-0 min-w-0 flex-1 border-r border-border-soft">
-                  <MonacoEditorPane />
-                </div>
-                <div className="min-h-0 min-w-0 flex-1">
-                  <MonacoEditorPane />
-                </div>
-              </>
-            ) : (
-              <MonacoEditorPane />
-            )}
-          </div>
-          {!zenMode && <BottomPanel />}
-        </div>
-        {!zenMode && (
-          <div className="w-[420px] shrink-0 border-l border-border-soft bg-bg-soft">
+      {zenMode ? (
+        <>
+          <ZenModeExitBar />
+          <div className="flex min-h-0 flex-1 flex-col bg-bg-soft">
             <AiPanel />
           </div>
-        )}
-      </div>
+        </>
+      ) : (
+        <>
+          {/* Keep chrome above fixed AiPanel overlays (Composer, Browser). Modals use z-[110]+ */}
+          <div className="relative z-[100] flex shrink-0 flex-col">
+            <MenuBar />
+            <TopBar />
+          </div>
+          <div className="flex min-h-0 flex-1">
+            {!sidebarCollapsed && (
+              <>
+                <div
+                  className="workspace-panel shrink-0 overflow-hidden border-r border-border-soft"
+                  style={{ width: sidebarWidthPx }}
+                >
+                  <Sidebar />
+                </div>
+                <PanelResizeHandle
+                  orientation="col"
+                  onDrag={(dx) => {
+                    const cur = useSettings.getState().settings.sidebarWidthPx;
+                    void useSettings.getState().update({
+                      sidebarWidthPx: Math.min(520, Math.max(180, cur + dx)),
+                    });
+                  }}
+                />
+              </>
+            )}
+            <div className="flex min-w-0 flex-1 flex-col">
+              <EditorTabs />
+              <div
+                className={
+                  'min-h-0 flex-1' + (editorSplit && tabs.length > 0 ? ' flex flex-row' : '')
+                }
+              >
+                {tabs.length === 0 ? (
+                  <WelcomePane />
+                ) : editorSplit ? (
+                  <>
+                    <div className="min-h-0 min-w-0 flex-1 border-r border-border-soft">
+                      <MonacoEditorPane />
+                    </div>
+                    <div className="min-h-0 min-w-0 flex-1">
+                      <MonacoEditorPane />
+                    </div>
+                  </>
+                ) : (
+                  <MonacoEditorPane />
+                )}
+              </div>
+              <BottomPanel />
+            </div>
+            <PanelResizeHandle
+              orientation="col"
+              onDrag={(dx) => {
+                const cur = useSettings.getState().settings.aiPanelWidthPx;
+                void useSettings.getState().update({
+                  aiPanelWidthPx: Math.min(900, Math.max(280, cur - dx)),
+                });
+              }}
+            />
+            <div
+              className="workspace-panel min-h-0 min-w-0 shrink-0 overflow-x-auto overflow-y-hidden border-l border-border-soft"
+              style={{ width: aiPanelWidthPx }}
+            >
+              <AiPanel />
+            </div>
+          </div>
+        </>
+      )}
 
       <RoadmapModal />
       <StatsModal />
@@ -496,19 +650,46 @@ function ZenModeExitBar() {
   const exitZen = useCallback(() => {
     void useSettings.getState().update({ zenMode: false });
   }, []);
+  const setShowSettings = useApp((s) => s.setShowSettings);
+  const setShowModelPicker = useApp((s) => s.setShowModelPicker);
+  const requestVideoGenModal = useApp((s) => s.requestVideoGenModal);
 
   return (
     <div
-      className="flex h-9 shrink-0 items-center justify-center gap-3 border-b border-border-soft bg-bg-elevated/95 backdrop-blur-sm"
+      className="chrome-menubar relative z-[100] flex min-h-9 shrink-0 flex-wrap items-center justify-center gap-2 border-b border-border-soft px-2 py-1.5 ds-transition"
       role="region"
-      aria-label="Zen mode controls"
+      aria-label="Fullscreen AI chat controls"
     >
       <button
         type="button"
         className="rounded-md px-3 py-1.5 text-sm font-medium text-fg ring-1 ring-border-soft transition-colors hover:bg-bg-hover"
         onClick={exitZen}
       >
-        Exit zen mode
+        Exit fullscreen AI chat
+      </button>
+      <button
+        type="button"
+        className="rounded-md border border-accent/50 bg-accent/15 px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent/25"
+        onClick={() => requestVideoGenModal()}
+        title="Generate video (OpenRouter)"
+      >
+        Video
+      </button>
+      <button
+        type="button"
+        className="rounded-md border border-border-soft bg-bg-soft px-2.5 py-1 text-xs font-medium text-fg-muted shadow-sm hover:bg-bg-hover hover:text-fg"
+        onClick={() => setShowModelPicker(true)}
+        title="Choose model (Ctrl/Cmd+Shift+M)"
+      >
+        Models
+      </button>
+      <button
+        type="button"
+        className="rounded-md border border-border-soft bg-bg-soft px-2.5 py-1 text-xs font-medium text-fg-muted shadow-sm hover:bg-bg-hover hover:text-fg"
+        onClick={() => setShowSettings(true)}
+        title="Settings (Ctrl+,)"
+      >
+        Settings
       </button>
       <span className="hidden text-xs text-fg-muted sm:inline">
         <kbd className="rounded border border-border-soft bg-bg-soft px-1 font-sans">Esc</kbd>
@@ -529,13 +710,19 @@ function TopBar() {
   const setShowAccountModal = useApp((s) => s.setShowAccountModal);
   const toggleSidebar = useApp((s) => s.toggleSidebar);
   const accountEmail = useAccountSession((s) => s.email);
+  const resolvedTheme = useResolvedTheme();
+  const updateSettings = useSettings((s) => s.update);
+
+  const toggleAppearance = () => {
+    void updateSettings({ theme: resolvedTheme === 'light' ? 'dark' : 'light' });
+  };
 
   const openFolder = () => {
     void pickAndOpenProjectFolder();
   };
 
   return (
-    <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border-soft bg-bg-elevated px-3 shadow-chrome">
+    <div className="chrome-menubar relative flex h-10 shrink-0 items-center justify-between gap-3 px-3 ds-transition">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <button
           type="button"
@@ -593,6 +780,19 @@ function TopBar() {
           ) : (
             'Account'
           )}
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-border-soft bg-bg-soft px-2 py-1.5 text-sm leading-none text-fg-muted shadow-sm transition-colors duration-layout hover:border-border hover:bg-bg-hover hover:text-fg"
+          onClick={toggleAppearance}
+          title={
+            resolvedTheme === 'light'
+              ? 'Switch to dark theme (also in Settings → Appearance)'
+              : 'Switch to light theme (also in Settings → Appearance)'
+          }
+          aria-label={resolvedTheme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
+        >
+          {resolvedTheme === 'light' ? '🌙' : '☀️'}
         </button>
         <button
           type="button"

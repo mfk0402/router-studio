@@ -3,6 +3,8 @@ import { promises as fs } from 'node:fs';
 import type { Dirent } from 'node:fs';
 import path from 'node:path';
 import type { FileEntry } from '../shared/types.js';
+import * as codeIndex from './codeIndex.js';
+import { startProjectWatcher, stopProjectWatcher } from './projectWatcher.js';
 
 /**
  * All file operations are sandboxed to a single "project root" directory
@@ -36,7 +38,10 @@ export async function setRoot(root: string): Promise<boolean> {
   try {
     const stat = await fs.stat(root);
     if (!stat.isDirectory()) return false;
+    await stopProjectWatcher();
+    codeIndex.invalidateCodeIndex();
     projectRoot = path.resolve(root);
+    startProjectWatcher(projectRoot);
     return true;
   } catch {
     return false;
@@ -72,8 +77,11 @@ function resolveSafe(relativePath: string): string {
   // Normalize separators and strip leading slashes.
   const cleaned = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
   const abs = path.resolve(root, cleaned);
-  const rel = path.relative(root, abs);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+  // Ensure the resolved path is within the project root.
+  // Using startsWith with separator prevents prefix-matching attacks
+  // (e.g. root "/home/user/app" must not match "/home/user/app_other").
+  const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
+  if (abs !== root && !abs.startsWith(rootWithSep)) {
     throw new Error('Path traversal blocked: ' + relativePath);
   }
   return abs;
@@ -95,7 +103,8 @@ export async function listFiles(): Promise<FileEntry | null> {
     let entries: Dirent[];
     try {
       entries = (await fs.readdir(abs, { withFileTypes: true })) as Dirent[];
-    } catch {
+    } catch (e) {
+      console.warn('[fileSystem] Could not read directory:', abs, (e as Error).message);
       return node;
     }
     entries.sort((a, b) => {
@@ -191,7 +200,8 @@ export async function searchFiles(query: string): Promise<FileEntry[]> {
     let entries: Dirent[];
     try {
       entries = (await fs.readdir(abs, { withFileTypes: true })) as Dirent[];
-    } catch {
+    } catch (e) {
+      console.warn('[fileSystem] Could not read directory:', abs, (e as Error).message);
       return;
     }
     for (const e of entries) {
@@ -224,8 +234,8 @@ export async function backupFile(relativePath: string): Promise<string> {
   const backupPath = abs + '.bak.' + Date.now();
   try {
     await fs.copyFile(abs, backupPath);
-  } catch {
-    // ignore if source doesn't exist yet
+  } catch (e) {
+    console.warn('[fileSystem] Could not backup file:', abs, (e as Error).message);
   }
   return backupPath;
 }

@@ -4,7 +4,10 @@
  */
 
 import type * as Monaco from 'monaco-editor';
+import type { NormalizedModel } from '../../shared/types';
 import { useSettings } from '../store/settingsStore';
+import { getCompletionRouting } from './completionRouting';
+import { sendChatCompletion } from './openrouterClient';
 
 const GHOST_LANG_SELECTOR: Monaco.languages.LanguageSelector = [
   'typescript',
@@ -55,7 +58,8 @@ export function registerGhostInlineCompletions(monacoNs: typeof Monaco): Monaco.
       void context;
       const settings = useSettings.getState().settings;
       const ed = settings.editor;
-      if (!ed.ghostTextEnabled || !settings.apiKey?.trim()) {
+      const routing = getCompletionRouting(settings);
+      if (!ed.ghostTextEnabled || (!routing.openAiBaseUrl && !routing.apiKey?.trim())) {
         return { items: [] };
       }
 
@@ -87,8 +91,9 @@ export function registerGhostInlineCompletions(monacoNs: typeof Monaco): Monaco.
       const pathLabel = model.uri.path.replace(/^\//, '') || 'file';
 
       try {
-        const res = await window.api.openrouter.chat({
-          apiKey: settings.apiKey,
+        const cycle = await sendChatCompletion({
+          apiKey: routing.apiKey,
+          openAiBaseUrl: routing.openAiBaseUrl,
           model: settings.defaultModel,
           messages: [
             {
@@ -111,13 +116,21 @@ export function registerGhostInlineCompletions(monacoNs: typeof Monaco): Monaco.
           temperature: 0.05,
           maxTokens: 128,
           stream: false,
+          freeMode: {
+            enabled: false,
+            strategy: 'router',
+            freeModels: [] as NormalizedModel[],
+          },
+          fallbackModel: settings.fallbackModel,
+          completionFallbackModels: settings.completionFallbackModels,
+          allowOfflineQueue: false,
         });
 
         if (token.isCancellationRequested) {
           return { items: [] };
         }
 
-        const insert = stripGhostOutput(res.content ?? '', maxOut);
+        const insert = stripGhostOutput(cycle.content ?? '', maxOut);
         if (!insert) {
           return { items: [] };
         }

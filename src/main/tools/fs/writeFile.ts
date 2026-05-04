@@ -4,13 +4,15 @@ import type { RegisteredTool, ToolHandlerResult } from '../../../shared/types.js
 import { getSettings } from '../../secureStore.js';
 import { assertWriteAllowed } from '../../writePolicy.js';
 import { pushWriteUndo } from '../../writeUndoStack.js';
+import { assertSensitivePathAllowed } from '../../security/sensitiveFileGuard.js';
 
 export const tool: RegisteredTool = {
   name: 'write_file',
   description:
     'Write content to a file, replacing its entire contents. ' +
     'Creates the file if it does not exist. Creates parent directories as needed. ' +
-    'For partial edits, use edit_file instead.',
+    'For partial edits, use edit_file instead. ' +
+    'When this succeeds, any open editor tab for that path refreshes from disk.',
   category: 'filesystem',
   riskLevel: 'high',
   schema: {
@@ -39,9 +41,14 @@ export const tool: RegisteredTool = {
       return { success: false, error: 'Path is required.' };
     }
 
-    // Security: ensure path doesn't escape project root
+    // Security: ensure path doesn't escape project root.
+    // Using startsWith with separator prevents prefix-matching attacks
+    // (e.g. root "/home/user/app" must not match "/home/user/app_other").
     const absPath = path.resolve(ctx.projectRoot, relativePath);
-    if (!absPath.startsWith(ctx.projectRoot)) {
+    const rootWithSep = ctx.projectRoot.endsWith(path.sep)
+      ? ctx.projectRoot
+      : ctx.projectRoot + path.sep;
+    if (absPath !== ctx.projectRoot && !absPath.startsWith(rootWithSep)) {
       return { success: false, error: 'Path must be within the project root.' };
     }
 
@@ -49,6 +56,11 @@ export const tool: RegisteredTool = {
     const policy = assertWriteAllowed(settings, relativePath);
     if (!policy.ok) {
       return { success: false, error: policy.error };
+    }
+
+    const sens = await assertSensitivePathAllowed(ctx.projectRoot, relativePath);
+    if (!sens.ok) {
+      return { success: false, error: sens.error };
     }
 
     // Check for protected paths

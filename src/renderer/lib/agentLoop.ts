@@ -73,3 +73,23 @@ export function newTaskId(): string {
   const rand = Math.random().toString(36).slice(2, 8);
   return `task-${Date.now().toString(36)}-${rand}`;
 }
+
+/** True when the user likely expects real repo edits (not advice-only). Used to reject premature [[TASK_COMPLETE]]. */
+export function looksLikeConcreteRepoWork(goal: string): boolean {
+  const g = goal.trim();
+  if (g.length < 10) return false;
+  if (/\b(across|throughout)\s+(?:the\s+)?(?:codebase|project|repo)\b/i.test(g)) return true;
+  if (/\bmulti[- ]file\b/i.test(g)) return true;
+  if (/\blarge(r)?\s+refactor\b/i.test(g)) return true;
+  if (
+    /\b(migrate|renaming|refactor)\b/i.test(g) &&
+    /\b(codebase|project|repo|files?|modules?|folders?)\b/i.test(g)
+  )
+    return true;
+  if (/\b(fix|implement|apply|patch)\s+(?:all|these|every|those|them)\b/i.test(g)) return true;
+  if (/\bfix\b[\s\S]{0,220}\b(issue|bug|file|files|code|codebase|project|change)s?\b/i.test(g)) return true;
+  return (
+    /\b(fix|implement|apply|patch|refactor|change|update|correct)\b/i.test(g) &&
+    /\b(code|file|files|codebase|project|repo|typescript|javascript|\bts\b|tsx|jsx|rust|python)\b/i.test(g)
+  );
+}

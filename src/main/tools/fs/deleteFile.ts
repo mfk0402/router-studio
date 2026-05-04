@@ -8,7 +8,8 @@ export const tool: RegisteredTool = {
   name: 'delete_file',
   description:
     'Delete a file. This operation cannot be undone. ' +
-    'Does not delete directories (use with care).',
+    'Does not delete directories (use with care). ' +
+    'When this succeeds, any open editor tab for that path is closed.',
   category: 'filesystem',
   riskLevel: 'high',
   schema: {
@@ -22,7 +23,9 @@ export const tool: RegisteredTool = {
     required: ['path'],
   },
   handler: async (args, ctx): Promise<ToolHandlerResult> => {
-    const relativePath = String(args.path ?? '');
+    const relativePath = String(args.path ?? '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '');
 
     if (!ctx.projectRoot) {
       return { success: false, error: 'No project folder is open.' };
@@ -32,9 +35,10 @@ export const tool: RegisteredTool = {
       return { success: false, error: 'Path is required.' };
     }
 
-    // Security: ensure path doesn't escape project root
-    const absPath = path.resolve(ctx.projectRoot, relativePath);
-    if (!absPath.startsWith(ctx.projectRoot)) {
+    const rootResolved = path.resolve(ctx.projectRoot);
+    const rootWithSep = rootResolved.endsWith(path.sep) ? rootResolved : rootResolved + path.sep;
+    const absPath = path.resolve(rootResolved, relativePath);
+    if (absPath !== rootResolved && !absPath.startsWith(rootWithSep)) {
       return { success: false, error: 'Path must be within the project root.' };
     }
 

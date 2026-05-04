@@ -194,7 +194,7 @@ Please analyze each issue and provide fixes.`;
   const counts = countDiagnostics(diagnostics);
 
   return (
-    <div className="flex h-full flex-col bg-[#1e1e1e]">
+    <div className="flex h-full flex-col bg-bg-deep">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[#333] px-3 py-2">
         <div className="flex items-center gap-3">
@@ -282,7 +282,7 @@ Please analyze each issue and provide fixes.`;
                 {/* File header */}
                 <button
                   onClick={() => toggleFile(file)}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#252526]"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-bg-hover"
                 >
                   <svg
                     className={`h-3 w-3 text-gray-500 transition-transform ${expandedFiles.has(file) ? 'rotate-90' : ''}`}
@@ -305,7 +305,7 @@ Please analyze each issue and provide fixes.`;
                     {diags.map((diag) => (
                       <div
                         key={diag.id}
-                        className={`group flex items-start gap-2 px-6 py-2 hover:bg-[#252526] ${SEVERITY_BG[diag.severity]}`}
+                        className={`group flex items-start gap-2 px-6 py-2 hover:bg-bg-hover ${SEVERITY_BG[diag.severity]}`}
                       >
                         <span className={`mt-0.5 ${SEVERITY_COLORS[diag.severity]}`}>
                           {SEVERITY_ICONS[diag.severity]}

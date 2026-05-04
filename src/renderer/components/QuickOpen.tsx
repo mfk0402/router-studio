@@ -194,12 +194,12 @@ export default function QuickOpen() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-24"
+      className="modal-scrim fixed inset-0 z-50 flex items-start justify-center pt-24 ds-transition"
       onClick={() => setOpen(false)}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-border bg-bg-soft shadow-2xl"
+        className="glass-panel glass-modal-lg flex w-full max-w-xl flex-col overflow-hidden ds-transition"
       >
         {/* Mode indicator */}
         <div className="flex items-center gap-2 border-b border-border-soft px-4 py-1.5">

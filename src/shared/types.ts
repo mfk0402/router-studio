@@ -20,6 +20,11 @@ export interface OpenRouterModelRaw {
     input_modalities?: string[];
     output_modalities?: string[];
   };
+  /**
+   * From GET /v1/videos/models merge. Dollar amounts are per-second, per output token, etc. — not chat per-token.
+   * Used for catalog display and tiering in the Model Picker.
+   */
+  video_pricing_skus?: Record<string, string>;
 }
 
 export type ModelCategory =
@@ -41,6 +46,8 @@ export interface NormalizedModel {
   id: string;
   name: string;
   description: string;
+  /** From OpenRouter `architecture.output_modalities` (lowercased). */
+  outputModalities: string[];
   contextLength: number;
   /** Input price per token (raw OpenRouter value). */
   pricingPrompt: number;
@@ -97,6 +104,15 @@ export interface FileEntry {
   children?: FileEntry[];
 }
 
+/** Product-level AI working mode (header switcher + tool/policy shaping). */
+export type ProductMode =
+  | 'chat'
+  | 'edit'
+  | 'agent'
+  | 'architect'
+  | 'review'
+  | 'ship';
+
 export interface UserSnippet {
   id: string;
   name: string;
@@ -148,11 +164,26 @@ export interface ScheduledTaskDuePayload {
   at: number;
 }
 
+/** After agent tools mutate files on disk, main notifies renderer to refresh or drop open tabs. */
+export interface AgentFileSyncedPayload {
+  relativePath: string;
+  /** New file contents when the agent wrote or edited the file. */
+  content?: string;
+  /** True when the agent deleted the file — matching editor tabs should close. */
+  removed?: boolean;
+  /** Previous relative path when the agent renamed/moved a file (tabs retarget to `relativePath`). */
+  renamedFrom?: string;
+}
+
 export interface AppSettings {
   apiKey: string;
+  /** Last-selected built-in profile (`custom` = manual model fields). */
+  activeModelProfile: string;
   defaultModel: string;
   freeModeStrategy: 'router' | 'cycle';
   fallbackModel: string;
+  /** Extra model IDs to try after the primary route fails (OpenRouter/OpenAI ids). Listed after Fallback Model dropdown. */
+  completionFallbackModels: string[];
   maxTokens: number;
   temperature: number;
   streaming: boolean;
@@ -166,6 +197,8 @@ export interface AppSettings {
   confirmBeforeRun: boolean;
   /** Run chat as a multi-turn task with auto-continue + persistence. */
   agentMode: boolean;
+  /** Primary UX mode: drives prompts and which tools are exposed to the model. */
+  productMode: ProductMode;
   /** Max number of auto-continue iterations before the task pauses. */
   maxAgentIterations: number;
   /** Max tool call hops in a single turn before forcing a response. */
@@ -246,7 +279,7 @@ export interface AppSettings {
    * show a toast with “Update now” when a newer version exists.
    */
   autoUpdateEnabled: boolean;
-  /** Distraction-free UI: hide side AI chat and minimize chrome. */
+  /** Distraction-free UI: fullscreen AI assistant chat (Exit with Esc). */
   zenMode: boolean;
   /** Show two editor panes side-by-side (same shortcuts; focused pane follows last click). */
   editorSplit: boolean;
@@ -265,23 +298,61 @@ export interface AppSettings {
   scheduledTasks: ScheduledTaskEntry[];
   /** Use browser Web Speech API for microphone dictation in the AI panel. */
   voiceInputEnabled: boolean;
+  /** Left sidebar width when expanded (px). */
+  sidebarWidthPx: number;
+  /** Right AI panel width (px). */
+  aiPanelWidthPx: number;
+  /** Bottom panel body height when expanded (px). */
+  bottomPanelHeightPx: number;
+
+  /**
+   * Where chat completions are sent. `local_openai` uses `localOpenAiBaseUrl` (Ollama, LM Studio, vLLM, etc.).
+   */
+  aiCompletionProvider: 'openrouter' | 'local_openai';
+  /** OpenAI-compatible API root including `/v1` when applicable (trimmed; no trailing slash). */
+  localOpenAiBaseUrl: string;
+
+  /** Hard cap on completion tokens per day (local clock, persisted). 0 = disabled. */
+  dailyCompletionTokenBudget: number;
+  /** Hard cap on completion tokens since app start (in-memory). 0 = disabled. */
+  sessionCompletionTokenBudget: number;
+
+  /** OpenRouter `/v1/tts` model id (e.g. openai/tts-1). Empty: `/tts` asks you to set this in Settings. */
+  openRouterTtsModel: string;
+  /** Voice name required by the TTS model (often `alloy`, `verse`, … — provider-specific). */
+  openRouterTtsVoice: string;
+  /** Audio file format for synthesized speech downloads. */
+  openRouterTtsFormat: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm';
+
+  /**
+   * OpenRouter `POST /api/v1/videos` model id (see video models list / catalog).
+   * Empty: infer from Default model (cheapest video-gen / free-mode rules).
+   */
+  openRouterVideoModel: string;
+  /** Optional `aspect_ratio` passthrough; empty = let the API use its default. */
+  openRouterVideoAspectRatio: string;
+  /** Optional `resolution` passthrough; empty = let the API use its default. */
+  openRouterVideoResolution: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   apiKey: '',
+  activeModelProfile: 'custom',
   defaultModel: 'openrouter/auto',
   freeModeStrategy: 'router',
   fallbackModel: '',
+  completionFallbackModels: [],
   maxTokens: 2048,
   temperature: 0.3,
   streaming: true,
   includeFullFile: false,
-  includeProjectTree: true,
-  theme: 'light',
+  includeProjectTree: false,
+  theme: 'dark',
   formatOnSave: false,
   defaultShell: '',
   confirmBeforeRun: true,
   agentMode: false,
+  productMode: 'chat',
   maxAgentIterations: 15,
   maxToolHops: 40,
   smartAgentRouting: false,
@@ -330,6 +401,21 @@ export const DEFAULT_SETTINGS: AppSettings = {
   taskTemplates: [],
   scheduledTasks: [],
   voiceInputEnabled: false,
+  sidebarWidthPx: 256,
+  aiPanelWidthPx: 420,
+  bottomPanelHeightPx: 192,
+
+  aiCompletionProvider: 'openrouter',
+  localOpenAiBaseUrl: 'http://127.0.0.1:11434/v1',
+  dailyCompletionTokenBudget: 0,
+  sessionCompletionTokenBudget: 0,
+
+  openRouterTtsModel: '',
+  openRouterTtsVoice: 'alloy',
+  openRouterTtsFormat: 'mp3',
+  openRouterVideoModel: '',
+  openRouterVideoAspectRatio: '',
+  openRouterVideoResolution: '',
 };
 
 // ================== TOOL CALLING TYPES ==================
@@ -386,6 +472,10 @@ export interface ToolApprovalRequest {
   args: Record<string, unknown>;
   preview?: string; // Human-readable preview (file diff, command, etc.)
   riskLevel: 'low' | 'medium' | 'high';
+  /** Shell command heuristic score (run_shell only). */
+  shellRiskScore?: 0 | 1 | 2 | 3 | 4 | 5;
+  shellRiskReasons?: string[];
+  shellSaferAlternative?: string;
 }
 
 /** User's response to a tool approval request */
@@ -393,6 +483,13 @@ export interface ToolApprovalResponse {
   id: string;
   action: 'allow' | 'allow_always_tool' | 'allow_always_pattern' | 'deny' | 'deny_stop';
   pattern?: string; // For allow_always_pattern: the path/command pattern
+}
+
+/** Main → renderer when tool output matches injection heuristics. */
+export interface ToolInjectionWarningPayload {
+  toolCallId: string;
+  toolName: string;
+  patterns: string[];
 }
 
 /** Tool execution result for the UI */
@@ -466,6 +563,44 @@ export interface ToolExecuteMeta {
   /** Links tool runs to the saved agent task (spawn_agent, future checkpoints). */
   taskId?: string;
   requestId?: string;
+  /** When set, overrides persisted settings for tool allow/deny (e.g. @agent one-shot). */
+  productMode?: ProductMode;
+}
+
+/** Single frame for image-to-video (OpenRouter `frame_images`). */
+export interface OpenRouterVideoFrameImage {
+  type: 'image_url';
+  image_url: { url: string };
+  frame_type: 'first_frame' | 'last_frame';
+}
+
+/** Reference image for reference-to-video (`input_references`). */
+export interface OpenRouterVideoReferenceImage {
+  type: 'image_url';
+  image_url: { url: string };
+}
+
+export interface OpenRouterVideoSubmitRequest {
+  model: string;
+  prompt: string;
+  aspect_ratio?: string;
+  duration?: number;
+  resolution?: string;
+  frame_images?: OpenRouterVideoFrameImage[];
+  input_references?: OpenRouterVideoReferenceImage[];
+  generate_audio?: boolean;
+  seed?: number;
+}
+
+/** POST `/v1/tts` — OpenRouter TTS (not chat completions). */
+export interface OpenRouterSpeechRequest {
+  model: string;
+  input: string;
+  voice: string;
+  /** e.g. mp3, opus, wav */
+  response_format?: string;
+  speed?: number;
+  provider?: Record<string, unknown>;
 }
 
 // ================== CHAT TYPES (EXTENDED) ==================
@@ -487,6 +622,18 @@ export interface ChatCompletionRequest {
   stream?: boolean;
   tools?: ToolDefinition[];
   tool_choice?: 'none' | 'auto' | { type: 'function'; function: { name: string } };
+  /**
+   * When set (e.g. `http://127.0.0.1:11434/v1` for Ollama), requests use this OpenAI-compatible
+   * `/chat/completions` endpoint instead of OpenRouter. Optional `apiKey` becomes Bearer token if non-empty.
+   */
+  openAiBaseUrl?: string;
+  /**
+   * OpenRouter: request image (and optional text) output. See
+   * https://openrouter.ai/docs/guides/overview/multimodal/image-generation
+   */
+  modalities?: string[];
+  /** OpenRouter: aspect ratio, size, etc. for image generation models. */
+  image_config?: Record<string, unknown>;
 }
 
 export interface CompletionUsageSnapshot {
@@ -515,6 +662,8 @@ export interface LocalUsageStats {
 export interface StreamChunk {
   type: 'delta' | 'done' | 'error' | 'tool_call_start' | 'tool_call_delta' | 'tool_call_end';
   content?: string;
+  /** OpenRouter image-gen: data URLs from `delta.images[].image_url.url` */
+  generatedImageUrls?: string[];
   error?: string;
   model?: string;
   requestId?: string;
@@ -551,6 +700,45 @@ export type AgentTaskStatus =
   | 'paused';
 
 /** Persistent, resumable "agent task" — a long-running chat with a goal. */
+/** Plan → Build → Verify step persisted on an agent task. */
+export type TaskPlanStepStatus = 'pending' | 'running' | 'ok' | 'fail' | 'skipped';
+
+export interface TaskPlanStep {
+  id: string;
+  label: string;
+  status: TaskPlanStepStatus;
+  detail?: string;
+  toolCallIds?: string[];
+}
+
+/** Multi-file Composer session attached to a task (resume). */
+export interface ComposerSessionState {
+  goal: string;
+  /** Last planner JSON or summary */
+  planSummary?: string;
+  /** Selected file paths / actions from UI */
+  selectedPaths?: string[];
+  updatedAt: number;
+}
+
+/** Saved by workspace_snapshot_save — file backups under userData for rewind workflows. */
+export interface WorkspaceCheckpointSummary {
+  id: string;
+  label: string;
+  createdAt: number;
+  fileCount: number;
+  /** Absolute project root when the checkpoint was captured */
+  capturedRoot: string;
+}
+
+export interface WorkspaceCheckpointPayload {
+  id: string;
+  label: string;
+  createdAt: number;
+  projectRoot: string;
+  files: Array<{ path: string; content: string }>;
+}
+
 export interface AgentTask {
   id: string;
   /** When this task was started by spawn_agent, the parent task id. */
@@ -568,6 +756,10 @@ export interface AgentTask {
   lastMarker: string | null;
   /** Detailed error if status is 'failed'. */
   lastError: string | null;
+  /** Plan → Build → Verify checklist (optional). */
+  plan?: TaskPlanStep[];
+  /** Multi-file composer snapshot for resume. */
+  composer?: ComposerSessionState;
   /** Timestamps. */
   createdAt: number;
   updatedAt: number;
@@ -708,15 +900,31 @@ export interface IpcApi {
   openrouter: {
     testKey: (apiKey: string) => Promise<{ ok: boolean; error?: string }>;
     listModels: (apiKey: string) => Promise<OpenRouterModelRaw[]>;
+    /** GET `{base}/models` on a local OpenAI-compatible server. */
+    listOpenAiModels: (openAiBaseUrl: string, apiKey: string) => Promise<OpenRouterModelRaw[]>;
     chat: (req: ChatCompletionRequest) => Promise<{
       content: string;
       model: string;
       toolCalls?: ToolCall[];
       finishReason?: string;
       usage?: CompletionUsageSnapshot;
+      generatedImageUrls?: string[];
     }>;
     chatStreamStart: (req: ChatCompletionRequest) => Promise<string>;
     chatStreamCancel: (requestId: string) => Promise<void>;
+    videoSubmit: (
+      apiKey: string,
+      req: OpenRouterVideoSubmitRequest,
+    ) => Promise<{ id: string; polling_url: string; status: string }>;
+    videoPoll: (
+      apiKey: string,
+      pollingUrl: string,
+    ) => Promise<{ status: string; unsigned_urls?: string[]; error?: string }>;
+    /** OpenRouter POST `/v1/tts`; returns base64 audio for download / playback in the renderer. */
+    speech: (
+      apiKey: string,
+      req: OpenRouterSpeechRequest,
+    ) => Promise<{ base64: string; mimeType: string; fileExtension: string }>;
   };
   terminal: {
     start: (opts: { shell?: string; cwd?: string; cols?: number; rows?: number }) => Promise<{
@@ -743,9 +951,17 @@ export interface IpcApi {
     save: (task: AgentTask) => Promise<AgentTask>;
     delete: (id: string) => Promise<void>;
   };
+  checkpoints: {
+    list: () => Promise<WorkspaceCheckpointSummary[]>;
+    get: (id: string) => Promise<WorkspaceCheckpointPayload | null>;
+    restore: (
+      id: string,
+    ) => Promise<{ ok: true; written: string[] } | { ok: false; error: string }>;
+    delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  };
   tools: {
     /** Get all registered tools as definitions for the model */
-    listDefinitions: () => Promise<ToolDefinition[]>;
+    listDefinitions: (productMode?: ProductMode) => Promise<ToolDefinition[]>;
     /** Execute a tool (main process handles approval flow) */
     execute: (
       toolName: string,
@@ -766,10 +982,14 @@ export interface IpcApi {
     onStreamExtended: (cb: (chunk: StreamChunkExtended) => void) => () => void;
     onTerminal: (cb: (evt: TerminalEvent) => void) => () => void;
     onToolApproval: (cb: (req: ToolApprovalRequest) => void) => () => void;
+    onToolInjectionWarning: (cb: (evt: ToolInjectionWarningPayload) => void) => () => void;
     onToolExecution: (cb: (evt: ToolExecutionEvent) => void) => () => void;
     onUpdates: (cb: (evt: UpdateEvent) => void) => () => void;
     onWebhook: (cb: (payload: WebhookIncomingPayload) => void) => () => void;
     onScheduledDue: (cb: (payload: ScheduledTaskDuePayload) => void) => () => void;
+    onAgentFileSynced: (cb: (payload: AgentFileSyncedPayload) => void) => () => void;
+    /** Main-process watcher: project files changed on disk (debounced). */
+    onProjectFsChanged: (cb: () => void) => () => void;
   };
   /** Respond to a tool approval request */
   respondToolApproval: (response: ToolApprovalResponse) => Promise<void>;
@@ -848,6 +1068,12 @@ export interface SessionState {
     id: string;
     role: 'user' | 'assistant' | 'system';
     content: string;
+    /** Short UI text for user bubbles (full `content` is still persisted). */
+    displayContent?: string;
+    modelUsed?: string;
+    generatedImageUrls?: string[];
+    generatedVideoUrls?: string[];
+    error?: string;
   }>;
   savedAt: number;
 }

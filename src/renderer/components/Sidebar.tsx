@@ -53,7 +53,7 @@ export default function Sidebar() {
       } finally {
         if (!cancelled) setLoadingSearch(false);
       }
-    }, 150);
+    }, 280);
     return () => {
       cancelled = true;
       clearTimeout(handle);
@@ -98,7 +98,7 @@ export default function Sidebar() {
   return (
     <div className="flex h-full flex-col">
       {/* Sidebar tabs */}
-      <div className="flex border-b border-border-soft">
+      <div className="chrome-tabstrip flex ds-transition">
         <button
           onClick={() => setActiveTab('explorer')}
           className={`flex-1 px-2 py-2 text-xs font-medium transition-colors ${

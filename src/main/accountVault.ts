@@ -133,8 +133,8 @@ export async function listRegisteredAccounts(): Promise<string[]> {
       const raw = await fs.readFile(metaPath, 'utf8');
       const meta = JSON.parse(raw) as AccountMetaFile;
       if (meta?.email) emails.push(meta.email);
-    } catch {
-      /* skip */
+    } catch (e) {
+      console.warn('[accountVault] Skipping account directory with invalid meta:', (e as Error).message);
     }
   }
   emails.sort();

@@ -42,6 +42,7 @@ export interface SessionState {
     id: string;
     role: 'user' | 'assistant' | 'system';
     content: string;
+    displayContent?: string;
   }>;
   savedAt: number;
 }

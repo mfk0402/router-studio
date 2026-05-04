@@ -176,8 +176,8 @@ export default function AccountModal() {
   const needsVerification = regPolicy?.needsVerification === true;
 
   return (
-    <div className="modal-scrim fixed inset-0 z-50 flex items-center justify-center p-6">
-      <div className="flex w-full max-w-md flex-col overflow-hidden rounded-xl border border-border bg-bg-soft shadow-2xl">
+    <div className="modal-scrim fixed inset-0 z-[110] flex items-center justify-center p-6">
+      <div className="glass-panel glass-modal-lg flex w-full max-w-md flex-col overflow-hidden ds-transition">
         <div className="flex items-center justify-between border-b border-border-soft px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             <span className="brand-mark-icon-wrap">

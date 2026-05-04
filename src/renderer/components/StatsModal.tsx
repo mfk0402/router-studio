@@ -62,7 +62,7 @@ export default function StatsModal() {
       onClick={() => setOpen(false)}
     >
       <div
-        className="flex w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border-soft bg-bg-elevated shadow-float ring-1 ring-subtle"
+        className="glass-panel glass-modal-lg flex w-full max-w-lg flex-col overflow-hidden ds-transition ring-1 ring-subtle"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-border-soft px-5 py-4 shadow-chrome">

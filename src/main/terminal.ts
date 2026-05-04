@@ -42,8 +42,10 @@ function shellArgs(shell: string): string[] {
   if (base.startsWith('cmd')) {
     return [];
   }
-  // bash/zsh/sh
-  return ['-i'];
+  // bash/zsh/sh — use login shell (-l) instead of interactive (-i) to avoid
+  // sourcing .bashrc/.zshrc which can print prompts and startup noise that
+  // confuse the terminal parser.
+  return ['-l'];
 }
 
 function commandTerminator(shell: string): string {

@@ -20,11 +20,14 @@
 6. **Extensibility** — MCP registry JSON, custom tool discovery, plugin status, snapshots; **in progress:** MCP process host, sandboxed `.opencode` execution, checkpoint rewind UI.
 7. **Safety** — Redaction, audit log, policies, sandbox & dry-run, shell/write guards + undo writes.
 8. **Polish** — Stats panel, static `docs/index.html`, landing asset, benchmark modal; **in progress:** a11y audit, CI signing matrix.
+9. **Next-gen strategy** — Long-horizon Phases **11–35** in [`ROUTER_STUDIO_NEXT_GEN_ROADMAP.md`](../ROUTER_STUDIO_NEXT_GEN_ROADMAP.md); **Phase 36** ties that doc to `roadmap.ts`. In-app rollup under **Next-generation roadmap** (`ng-*` ids: phases 11–32 themes plus Phases **34–35** review items).
 
-## Auto-updates
+## Next-gen doc
+
+Full strategic backlog (model router v2, codebase intelligence, MCP marketplace, performance, remote agents): **[`ROUTER_STUDIO_NEXT_GEN_ROADMAP.md`](../ROUTER_STUDIO_NEXT_GEN_ROADMAP.md)**. Update **`src/shared/roadmap.ts`** when items become shipped or WIP.
 
 Packaged builds use **electron-updater**. Set **`ROUTER_STUDIO_UPDATES_URL`** or **`build.publish`** so `latest.yml` and installers are reachable.
 
 ## Contributing
 
-Implement against existing `src/main/tools` + IPC patterns, then update **`roadmap.ts`** statuses and this file at a high level when behavior changes materially.
+Implement against existing `src/main/tools` + IPC patterns, then update **`roadmap.ts`** statuses and this file at a high level when behavior changes materially. Strategic phases **11–35** live in **`ROUTER_STUDIO_NEXT_GEN_ROADMAP.md`** (see Phase 36 there for traceability).

@@ -5,8 +5,10 @@ import type {
   OpenRouterModelRaw,
   StreamChunk,
   ToolCall,
+  ChatMessage,
 } from '../shared/types.js';
 import { recordCompletion } from './localStats.js';
+import { mergeVideoGenerationModels } from './openrouterVideo.js';
 
 const API_BASE = 'https://openrouter.ai/api/v1';
 const APP_REFERER = 'https://router-studio.local';
@@ -27,6 +29,21 @@ function normalizeUsageInput(raw: unknown): CompletionUsageSnapshot | undefined 
   return Object.keys(snap).length > 0 ? snap : undefined;
 }
 
+/** OpenRouter image-gen wire format: `message.images[]` / `delta.images[]`. */
+function extractImageUrlsFromWire(
+  images: Array<{ image_url?: { url?: string } }> | undefined,
+): string[] {
+  if (!Array.isArray(images)) return [];
+  const out: string[] = [];
+  for (const im of images) {
+    const u = im?.image_url?.url;
+    if (typeof u === 'string' && u.length > 0) {
+      out.push(u);
+    }
+  }
+  return out;
+}
+
 function authHeaders(apiKey: string): Record<string, string> {
   return {
     Authorization: `Bearer ${apiKey}`,
@@ -34,6 +51,60 @@ function authHeaders(apiKey: string): Record<string, string> {
     'HTTP-Referer': APP_REFERER,
     'X-Title': APP_TITLE,
   };
+}
+
+function completionsUrl(req: ChatCompletionRequest): string {
+  const custom = req.openAiBaseUrl?.trim();
+  if (custom) {
+    const base = custom.replace(/\/+$/, '');
+    return `${base}/chat/completions`;
+  }
+  return `${API_BASE}/chat/completions`;
+}
+
+/** Headers for OpenRouter vs local OpenAI-compatible servers (Ollama, LM Studio, …). */
+function completionHeaders(req: ChatCompletionRequest): Record<string, string> {
+  if (req.openAiBaseUrl?.trim()) {
+    const h: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (req.apiKey.trim()) {
+      h.Authorization = `Bearer ${req.apiKey}`;
+    }
+    return h;
+  }
+  return authHeaders(req.apiKey);
+}
+
+function credentialError(req: ChatCompletionRequest): string | null {
+  if (req.openAiBaseUrl?.trim()) return null;
+  if (!req.apiKey.trim()) return 'OpenRouter API key missing. Add it in Settings.';
+  return null;
+}
+
+/**
+ * Convert internal ChatMessage[] to the OpenAI-compatible wire format.
+ * Extracted to avoid duplicating this logic between chatCompletion and startChatStream.
+ */
+function toWireMessages(messages: ChatMessage[]): Record<string, unknown>[] {
+  return messages.map((m) => {
+    if (m.role === 'tool') {
+      return {
+        role: 'tool',
+        tool_call_id: m.tool_call_id,
+        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+      };
+    }
+    const msg: Record<string, unknown> = {
+      role: m.role,
+      content: m.content,
+    };
+    if (m.tool_calls && m.tool_calls.length > 0) {
+      msg.tool_calls = m.tool_calls;
+    }
+    if (m.name) {
+      msg.name = m.name;
+    }
+    return msg;
+  });
 }
 
 export async function testApiKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
@@ -61,7 +132,49 @@ export async function listModels(apiKey: string): Promise<OpenRouterModelRaw[]> 
     throw new Error(`Failed to fetch models: HTTP ${res.status}`);
   }
   const json = (await res.json()) as { data?: OpenRouterModelRaw[] };
-  return Array.isArray(json.data) ? json.data : [];
+  const chat = Array.isArray(json.data) ? json.data : [];
+  return mergeVideoGenerationModels(chat);
+}
+
+/**
+ * GET /v1/models on an OpenAI-compatible server (Ollama, LM Studio, vLLM, …).
+ * `openAiBaseUrl` should be the API root including `/v1` when applicable (trailing slashes ignored).
+ */
+export async function listOpenAiCompatibleModels(
+  openAiBaseUrl: string,
+  apiKey: string,
+): Promise<OpenRouterModelRaw[]> {
+  const base = openAiBaseUrl.trim().replace(/\/+$/, '');
+  if (!base) {
+    throw new Error('Local model server URL is empty. Set it in Settings → Models.');
+  }
+  const url = `${base}/models`;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (apiKey.trim()) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  const res = await fetch(url, { method: 'GET', headers });
+  if (!res.ok) {
+    const txt = await safeText(res);
+    throw new Error(mapHttpError(res.status, txt));
+  }
+  const json = (await res.json()) as { data?: unknown };
+  const rows = Array.isArray(json.data) ? json.data : [];
+  const out: OpenRouterModelRaw[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const o = row as Record<string, unknown>;
+    const id = o.id;
+    if (typeof id !== 'string' || !id.trim()) continue;
+    const name = o.name;
+    const raw: OpenRouterModelRaw = { id: id.trim() };
+    if (typeof name === 'string' && name.trim()) {
+      raw.name = name.trim();
+    }
+    out.push(raw);
+  }
+  out.sort((a, b) => a.id.localeCompare(b.id));
+  return out;
 }
 
 export interface ChatCompletionResult {
@@ -70,34 +183,17 @@ export interface ChatCompletionResult {
   toolCalls?: ToolCall[];
   finishReason?: string;
   usage?: CompletionUsageSnapshot;
+  /** OpenRouter image generation: data URLs */
+  generatedImageUrls?: string[];
 }
 
 export async function chatCompletion(req: ChatCompletionRequest): Promise<ChatCompletionResult> {
-  if (!req.apiKey) throw new Error('OpenRouter API key missing. Add it in Settings.');
+  const credErr = credentialError(req);
+  if (credErr) throw new Error(credErr);
 
   const body: Record<string, unknown> = {
     model: req.model,
-    messages: req.messages.map((m) => {
-      // Convert to OpenAI format
-      if (m.role === 'tool') {
-        return {
-          role: 'tool',
-          tool_call_id: m.tool_call_id,
-          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-        };
-      }
-      const msg: Record<string, unknown> = {
-        role: m.role,
-        content: m.content,
-      };
-      if (m.tool_calls && m.tool_calls.length > 0) {
-        msg.tool_calls = m.tool_calls;
-      }
-      if (m.name) {
-        msg.name = m.name;
-      }
-      return msg;
-    }),
+    messages: toWireMessages(req.messages),
     temperature: req.temperature ?? 0.3,
     max_tokens: req.maxTokens ?? 2048,
     stream: false,
@@ -109,10 +205,16 @@ export async function chatCompletion(req: ChatCompletionRequest): Promise<ChatCo
   if (req.tool_choice) {
     body.tool_choice = req.tool_choice;
   }
+  if (req.modalities && req.modalities.length > 0) {
+    body.modalities = req.modalities;
+  }
+  if (req.image_config && Object.keys(req.image_config).length > 0) {
+    body.image_config = req.image_config;
+  }
 
-  const res = await fetch(`${API_BASE}/chat/completions`, {
+  const res = await fetch(completionsUrl(req), {
     method: 'POST',
-    headers: authHeaders(req.apiKey),
+    headers: completionHeaders(req),
     body: JSON.stringify(body),
   });
 
@@ -126,6 +228,7 @@ export async function chatCompletion(req: ChatCompletionRequest): Promise<ChatCo
       message?: {
         content?: string;
         tool_calls?: ToolCall[];
+        images?: Array<{ image_url?: { url?: string }; type?: string }>;
       };
       finish_reason?: string;
     }>;
@@ -137,6 +240,7 @@ export async function chatCompletion(req: ChatCompletionRequest): Promise<ChatCo
   const content = choice?.message?.content ?? '';
   const toolCalls = choice?.message?.tool_calls;
   const finishReason = choice?.finish_reason;
+  const generatedImageUrls = extractImageUrlsFromWire(choice?.message?.images);
 
   return {
     content,
@@ -144,6 +248,7 @@ export async function chatCompletion(req: ChatCompletionRequest): Promise<ChatCo
     toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
     usage: normalizeUsageInput(data.usage),
+    generatedImageUrls: generatedImageUrls.length > 0 ? generatedImageUrls : undefined,
   };
 }
 
@@ -185,9 +290,10 @@ export async function startChatStream(
   };
 
   try {
-    if (!req.apiKey) {
+    const credErr = credentialError(req);
+    if (credErr) {
       streamOk = false;
-      send({ type: 'error', error: 'OpenRouter API key missing. Add it in Settings.' });
+      send({ type: 'error', error: credErr });
       send({ type: 'done' });
       return;
     }
@@ -196,49 +302,36 @@ export async function startChatStream(
     activeStreams.set(requestId, controller);
 
     const body: Record<string, unknown> = {
-    model: req.model,
-    messages: req.messages.map((m) => {
-      if (m.role === 'tool') {
-        return {
-          role: 'tool',
-          tool_call_id: m.tool_call_id,
-          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-        };
-      }
-      const msg: Record<string, unknown> = {
-        role: m.role,
-        content: m.content,
-      };
-      if (m.tool_calls && m.tool_calls.length > 0) {
-        msg.tool_calls = m.tool_calls;
-      }
-      if (m.name) {
-        msg.name = m.name;
-      }
-      return msg;
-    }),
-    temperature: req.temperature ?? 0.3,
-    max_tokens: req.maxTokens ?? 2048,
-    stream: true,
-  };
+      model: req.model,
+      messages: toWireMessages(req.messages),
+      temperature: req.temperature ?? 0.3,
+      max_tokens: req.maxTokens ?? 2048,
+      stream: true,
+    };
 
-  if (req.tools && req.tools.length > 0) {
-    body.tools = req.tools;
-  }
-  if (req.tool_choice) {
-    body.tool_choice = req.tool_choice;
-  }
+    if (req.tools && req.tools.length > 0) {
+      body.tools = req.tools;
+    }
+    if (req.tool_choice) {
+      body.tool_choice = req.tool_choice;
+    }
+    if (req.modalities && req.modalities.length > 0) {
+      body.modalities = req.modalities;
+    }
+    if (req.image_config && Object.keys(req.image_config).length > 0) {
+      body.image_config = req.image_config;
+    }
 
-  // Accumulate tool calls by index
-  const toolCallAccumulators = new Map<number, ToolCallAccumulator>();
+    // Accumulate tool calls by index
+    const toolCallAccumulators = new Map<number, ToolCallAccumulator>();
 
-  try {
-    const res = await fetch(`${API_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: authHeaders(req.apiKey),
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    try {
+      const res = await fetch(completionsUrl(req), {
+        method: 'POST',
+        headers: completionHeaders(req),
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
 
     if (!res.ok || !res.body) {
       streamOk = false;
@@ -289,6 +382,7 @@ export async function startChatStream(
               choices?: Array<{
                 delta?: {
                   content?: string;
+                  images?: Array<{ image_url?: { url?: string } }>;
                   tool_calls?: Array<{
                     index: number;
                     id?: string;
@@ -315,6 +409,11 @@ export async function startChatStream(
             // Handle text content
             if (typeof delta?.content === 'string' && delta.content.length > 0) {
               send({ type: 'delta', content: delta.content });
+            }
+
+            const imgUrls = extractImageUrlsFromWire(delta?.images);
+            if (imgUrls.length > 0) {
+              send({ type: 'delta', generatedImageUrls: imgUrls });
             }
 
             // Handle tool calls
@@ -379,6 +478,9 @@ export async function startChatStream(
     }
 
     // Stream ended without [DONE], finalize tool calls
+    if (buffer.trim()) {
+      console.warn('[openrouter] Stream ended with unparsed data in buffer:', buffer.slice(0, 200));
+    }
     for (const [index, tc] of toolCallAccumulators) {
       send({
         type: 'tool_call_end',
@@ -452,6 +554,6 @@ function mapHttpError(status: number, body: string): string {
   if (status === 403) return `Access denied (403)${detail}`;
   if (status === 404) return `Model not found (404)${detail}`;
   if (status === 429) return `Rate limit reached (429)${detail}. Try again later or switch models.`;
-  if (status >= 500) return `OpenRouter server error (${status})${detail}`;
-  return `OpenRouter request failed (${status})${detail}`;
+  if (status >= 500) return `Upstream server error (${status})${detail}`;
+  return `Completion request failed (${status})${detail}`;
 }

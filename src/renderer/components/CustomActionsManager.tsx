@@ -80,9 +80,9 @@ export default function CustomActionsManager({ onClose }: { onClose: () => void 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div className="modal-scrim fixed inset-0 z-50 flex items-center justify-center p-4 ds-transition" onClick={onClose}>
       <div
-        className="max-h-[85vh] w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-bg-soft shadow-2xl"
+        className="glass-panel glass-modal-lg max-h-[85vh] w-full max-w-2xl overflow-hidden ds-transition"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

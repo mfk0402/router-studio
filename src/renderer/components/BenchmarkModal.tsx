@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/appStore';
 import { useSettings } from '../store/settingsStore';
+import { getCompletionRouting } from '../lib/completionRouting';
 import logoIcon from '../assets/logo-icon.png';
 
 /**
@@ -26,13 +27,15 @@ export default function BenchmarkModal() {
 
   const run = async () => {
     const id = modelOptions.effective;
-    if (!settings.apiKey?.trim()) return;
+    const routing = getCompletionRouting(settings);
+    if (!routing.openAiBaseUrl && !settings.apiKey?.trim()) return;
     setBusy(true);
     setLast(null);
     const t0 = performance.now();
     try {
       const r = await window.api.openrouter.chat({
-        apiKey: settings.apiKey,
+        apiKey: settings.apiKey ?? '',
+        openAiBaseUrl: routing.openAiBaseUrl,
         model: id,
         messages: [{ role: 'user', content: prompt }],
         stream: false,
@@ -53,7 +56,7 @@ export default function BenchmarkModal() {
 
   return (
     <div className="modal-scrim fixed inset-0 z-40 flex items-center justify-center p-6">
-      <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-bg-soft shadow-2xl">
+      <div className="glass-panel glass-modal-lg flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden ds-transition">
         <div className="flex items-center justify-between border-b border-border-soft px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             <span className="brand-mark-icon-wrap">
@@ -94,7 +97,10 @@ export default function BenchmarkModal() {
           />
           <button
             type="button"
-            disabled={busy || !settings.apiKey}
+            disabled={
+              busy ||
+              (!getCompletionRouting(settings).openAiBaseUrl && !settings.apiKey?.trim())
+            }
             onClick={() => void run()}
             className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-40"
           >

@@ -19,6 +19,8 @@ npm run dev
 3. Do **not** add real API keys, tokens, or personal paths. Use Settings in the app for keys locally.
 4. Keep changes focused on one concern when possible.
 
+When upgrading **`vite`** / **`electron-vite`**, if npm resolves newer **`rollup`** or **`esbuild`** majors/minors, update **`optionalDependencies`** native package pins in **`package.json`** to match the versions nested under those packages in **`package-lock.json`** so Windows/macOS/Linux installs stay consistent.
+
 ## Code style
 
 - Match existing TypeScript / React patterns in `src/`.

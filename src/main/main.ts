@@ -5,6 +5,7 @@ import { registerAppWindowGetter } from './appWindow.js';
 import { registerIpc } from './ipc.js';
 import { setupAutoUpdater, setUpdaterTargetWindow } from './updater.js';
 import { killAllSessions } from './terminal.js';
+import { stopProjectWatcher } from './projectWatcher.js';
 import { ensureDefaultAgentRule } from './rules.js';
 import { startScheduledTasksLoop } from './scheduledTasks.js';
 
@@ -26,8 +27,8 @@ if (!gotLock) {
 } else {
   app.on('second-instance', () => {
     if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
+      if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
   });
@@ -116,11 +117,13 @@ if (!gotLock) {
 
   app.on('window-all-closed', () => {
     killAllSessions();
+    void stopProjectWatcher();
     if (process.platform !== 'darwin') app.quit();
   });
 
   app.on('before-quit', () => {
     killAllSessions();
+    void stopProjectWatcher();
   });
 
   // Security: block unknown navigation targets.

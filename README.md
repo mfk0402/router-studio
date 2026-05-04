@@ -39,6 +39,8 @@ This repo is **the open-source app itself**—Electron + React source, build scr
 
 **Requirements:** Node.js **20+**, npm **10+**
 
+On **Windows**, prefer the **64-bit (x64)** Node installer. If `npm run dev` fails with a missing `@rollup/rollup-win32-…` package, run **`npm install`** again (the repo lists Rollup native addons as **optionalDependencies**), or follow the `[postinstall]` error text.
+
 ```bash
 git clone https://github.com/mfk0402/router-studio.git
 cd router-studio

@@ -301,25 +301,24 @@ export function FindReplaceDialog() {
   if (!showFindReplace) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-20">
-      <div className="w-[700px] max-h-[80vh] bg-[#1e1e1e] border border-[#444] rounded-lg shadow-2xl flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#333]">
-          <h2 className="text-sm font-medium text-white">Find and Replace in Files</h2>
+    <div className="modal-scrim fixed inset-0 z-50 flex items-start justify-center pt-20 ds-transition">
+      <div className="glass-panel glass-modal-lg flex w-[700px] max-h-[80vh] flex-col ds-transition">
+        <div className="flex items-center justify-between border-b border-border-soft px-4 py-3">
+          <h2 className="text-sm font-medium text-fg">Find and Replace in Files</h2>
           <button
+            type="button"
             onClick={() => setShowFindReplace(false)}
-            className="text-gray-400 hover:text-white"
+            className="text-fg-muted hover:text-fg"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        {/* Search inputs */}
-        <div className="p-4 border-b border-[#333] space-y-3">
+        <div className="space-y-3 border-b border-border-soft p-4">
           <div className="flex gap-2">
-            <div className="flex-1 relative">
+            <div className="relative flex-1">
               <input
                 ref={searchInputRef}
                 type="text"
@@ -327,15 +326,16 @@ export function FindReplaceDialog() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                 placeholder="Search"
-                className="w-full bg-[#333] text-white text-sm px-3 py-2 rounded outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-fg outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
               />
             </div>
             <button
+              type="button"
               onClick={handleSearch}
               disabled={loading}
-              className="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
             >
-              {loading ? 'Searching...' : 'Search'}
+              {loading ? 'Searching…' : 'Search'}
             </button>
           </div>
 
@@ -345,76 +345,76 @@ export function FindReplaceDialog() {
               value={replaceQuery}
               onChange={(e) => setReplaceQuery(e.target.value)}
               placeholder="Replace"
-              className="flex-1 bg-[#333] text-white text-sm px-3 py-2 rounded outline-none focus:ring-1 focus:ring-blue-500"
+              className="flex-1 rounded-md border border-border bg-bg px-3 py-2 text-sm text-fg outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
             />
             <button
+              type="button"
               onClick={handleReplaceSelected}
               disabled={loading || selectedResults.size === 0}
-              className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50"
+              className="rounded-md bg-success px-4 py-2 text-sm font-medium text-white hover:bg-success/90 disabled:opacity-50"
             >
               Replace Selected ({selectedResults.size})
             </button>
           </div>
 
-          {/* Options */}
-          <div className="flex items-center gap-4 text-xs text-gray-400">
-            <label className="flex items-center gap-1 cursor-pointer hover:text-white">
+          <div className="flex items-center gap-4 text-xs text-fg-muted">
+            <label className="flex cursor-pointer items-center gap-1 hover:text-fg">
               <input
                 type="checkbox"
                 checked={caseSensitive}
                 onChange={(e) => setCaseSensitive(e.target.checked)}
-                className="w-3 h-3"
+                className="h-3 w-3 accent-accent"
               />
               Case sensitive
             </label>
-            <label className="flex items-center gap-1 cursor-pointer hover:text-white">
+            <label className="flex cursor-pointer items-center gap-1 hover:text-fg">
               <input
                 type="checkbox"
                 checked={wholeWord}
                 onChange={(e) => setWholeWord(e.target.checked)}
-                className="w-3 h-3"
+                className="h-3 w-3 accent-accent"
               />
               Whole word
             </label>
-            <label className="flex items-center gap-1 cursor-pointer hover:text-white">
+            <label className="flex cursor-pointer items-center gap-1 hover:text-fg">
               <input
                 type="checkbox"
                 checked={useRegex}
                 onChange={(e) => setUseRegex(e.target.checked)}
-                className="w-3 h-3"
+                className="h-3 w-3 accent-accent"
               />
               Regex
             </label>
           </div>
         </div>
 
-        {/* Results */}
         <div className="flex-1 overflow-auto">
           {loading ? (
-            <div className="flex items-center justify-center h-32 text-gray-500">
-              <svg className="w-5 h-5 mr-2 animate-spin" fill="none" viewBox="0 0 24 24">
+            <div className="flex h-32 items-center justify-center text-fg-muted">
+              <svg className="mr-2 h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              Searching...
+              Searching…
             </div>
           ) : results.length === 0 ? (
-            <div className="flex items-center justify-center h-32 text-gray-500">
+            <div className="flex h-32 items-center justify-center text-fg-muted">
               {searchQuery ? 'No results found' : 'Enter a search term'}
             </div>
           ) : (
             <div>
-              <div className="px-4 py-2 text-xs text-gray-400 border-b border-[#333]">
+              <div className="border-b border-border-soft px-4 py-2 text-xs text-fg-muted">
                 {totalMatches} results in {results.length} files
               </div>
               {results.map((fr) => (
                 <div key={fr.file}>
                   <button
+                    type="button"
                     onClick={() => toggleFile(fr.file)}
-                    className="w-full flex items-center gap-2 px-4 py-2 text-left hover:bg-[#252526] border-b border-[#333]"
+                    className="flex w-full items-center gap-2 border-b border-border-soft px-4 py-2 text-left hover:bg-bg-hover"
                   >
                     <svg
-                      className={`w-3 h-3 text-gray-500 transition-transform ${expandedFiles.has(fr.file) ? 'rotate-90' : ''}`}
+                      className={`h-3 w-3 text-fg-subtle transition-transform ${expandedFiles.has(fr.file) ? 'rotate-90' : ''}`}
                       fill="currentColor"
                       viewBox="0 0 20 20"
                     >
@@ -424,24 +424,26 @@ export function FindReplaceDialog() {
                         clipRule="evenodd"
                       />
                     </svg>
-                    <span className="text-sm text-blue-400">{fr.file}</span>
-                    <span className="text-xs text-gray-500">({fr.results.length})</span>
+                    <span className="text-sm text-cyan">{fr.file}</span>
+                    <span className="text-xs text-fg-subtle">({fr.results.length})</span>
                     <div className="ml-auto flex items-center gap-1">
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           selectAllInFile(fr.file);
                         }}
-                        className="text-xs text-gray-500 hover:text-white px-1"
+                        className="px-1 text-xs text-fg-subtle hover:text-fg"
                       >
                         Select All
                       </button>
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           deselectAllInFile(fr.file);
                         }}
-                        className="text-xs text-gray-500 hover:text-white px-1"
+                        className="px-1 text-xs text-fg-subtle hover:text-fg"
                       >
                         Deselect
                       </button>
@@ -449,7 +451,7 @@ export function FindReplaceDialog() {
                   </button>
 
                   {expandedFiles.has(fr.file) && (
-                    <div className="bg-[#1a1a1a]">
+                    <div className="bg-bg-deep/50">
                       {fr.results.map((r, idx) => {
                         const key = `${r.file}:${r.line}:${r.column}`;
                         const isSelected = selectedResults.has(key);
@@ -457,40 +459,40 @@ export function FindReplaceDialog() {
                         return (
                           <div
                             key={idx}
-                            className="group flex items-start gap-2 px-6 py-1.5 hover:bg-[#252526]"
+                            className="group flex items-start gap-2 px-6 py-1.5 hover:bg-bg-hover"
                           >
                             <input
                               type="checkbox"
                               checked={isSelected}
                               onChange={() => toggleResult(key)}
-                              className="mt-1 w-3 h-3"
+                              className="mt-1 h-3 w-3 accent-accent"
                             />
-                            <span className="text-xs text-gray-500 w-12 text-right">
-                              {r.line}
-                            </span>
-                            <div className="flex-1 font-mono text-xs text-gray-300 truncate">
+                            <span className="w-12 text-right text-xs text-fg-subtle">{r.line}</span>
+                            <div className="flex-1 truncate font-mono text-xs text-fg-muted">
                               {r.lineContent.slice(0, r.matchStart)}
-                              <span className="bg-yellow-600/50 text-yellow-200">
+                              <span className="bg-accent/35 text-fg">
                                 {r.lineContent.slice(r.matchStart, r.matchEnd)}
                               </span>
                               {r.lineContent.slice(r.matchEnd)}
                             </div>
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
                               <button
+                                type="button"
                                 onClick={() => handleGoToResult(r)}
-                                className="p-1 text-gray-400 hover:text-white"
+                                className="p-1 text-fg-muted hover:text-fg"
                                 title="Go to location"
                               >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                                 </svg>
                               </button>
                               <button
+                                type="button"
                                 onClick={() => handleReplace(r)}
-                                className="p-1 text-gray-400 hover:text-green-400"
+                                className="p-1 text-fg-muted hover:text-success"
                                 title="Replace this occurrence"
                               >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                                 </svg>
                               </button>

@@ -147,8 +147,10 @@ async function ensureNative(pkg, ver, label) {
 
 function pruneWrongRollupOnWindows() {
   if (platform !== 'win32') return;
-  const wrong =
-    arch === 'x64' ? ['rollup-win32-ia32-msvc'] : arch === 'ia32' ? ['rollup-win32-x64-msvc'] : [];
+  let wrong = [];
+  if (arch === 'x64') wrong = ['rollup-win32-ia32-msvc', 'rollup-win32-arm64-msvc'];
+  else if (arch === 'ia32') wrong = ['rollup-win32-x64-msvc', 'rollup-win32-arm64-msvc'];
+  else if (arch === 'arm64') wrong = ['rollup-win32-ia32-msvc', 'rollup-win32-x64-msvc'];
   for (const w of wrong) {
     try {
       rmSync(join(root, 'node_modules/@rollup', w), { recursive: true, force: true });
@@ -201,6 +203,32 @@ async function main() {
   pruneWrongEsbuildOnWindows();
 }
 
-main().catch((e) => {
-  console.warn('[postinstall]', e);
-});
+function verifyRollupBindingOrExit() {
+  const rollupPkg = rollupBindingPackage();
+  let rollupVer;
+  try {
+    rollupVer = require('rollup/package.json').version;
+  } catch {
+    return;
+  }
+  if (!rollupPkg || !rollupVer || bindingInstalled(rollupPkg)) return;
+  console.error(
+    [
+      '[postinstall] Rollup native binding is missing for this Node/OS arch:',
+      `  platform=${platform} arch=${arch}`,
+      `  expected package: ${rollupPkg}@${rollupVer}`,
+      '',
+      'Try one of:',
+      `  npm install ${rollupPkg}@${rollupVer} --no-save`,
+      '  rm -rf node_modules package-lock.json && npm install',
+      'On Windows, installing Node.js 64-bit (x64) avoids many optional-deps edge cases.',
+    ].join('\n'),
+  );
+  process.exit(1);
+}
+
+main()
+  .then(() => verifyRollupBindingOrExit())
+  .catch((e) => {
+    console.warn('[postinstall]', e);
+  });

@@ -28,5 +28,11 @@ secrets.local.b64
 # Scratch / local experiments (if you use this folder name)
 scratch/
 
+# Stray `.js` next to `.ts`/`.tsx` sources (accidental emits; Vite may resolve `.js` first and break the app)
+src/**/*.js
+
+# Prefer `electron.vite.config.ts`; avoid duplicate JS beside it
+/electron.vite.config.js
+
 # Unrelated local scripts mistakenly placed in repo root (not part of Router Studio)
 sol-pnl.ts

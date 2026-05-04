@@ -1,12 +1,14 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { RegisteredTool, ToolContext, ToolHandlerResult } from '../../../shared/types.js';
+import type { RegisteredTool, ToolHandlerResult } from '../../../shared/types.js';
+import { assertSensitivePathAllowed } from '../../security/sensitiveFileGuard.js';
 
 export const tool: RegisteredTool = {
   name: 'read_file',
   description:
     'Read the contents of a file. Returns the file content with line numbers prefixed. ' +
-    'Use lineStart and lineEnd to read a specific range of lines (1-indexed).',
+    'Use lineStart and lineEnd to read a specific range of lines (1-indexed). ' +
+    'Optional max_lines caps how many lines are returned after the range is applied (useful for huge files).',
   category: 'filesystem',
   riskLevel: 'low',
   schema: {
@@ -24,6 +26,11 @@ export const tool: RegisteredTool = {
         type: 'integer',
         description: 'End line number (1-indexed, inclusive). Optional.',
       },
+      max_lines: {
+        type: 'integer',
+        description:
+          'Maximum lines to return after applying lineStart/lineEnd (default: unlimited). Use on large files to limit context size.',
+      },
     },
     required: ['path'],
   },
@@ -31,6 +38,11 @@ export const tool: RegisteredTool = {
     const relativePath = String(args.path ?? '');
     const lineStart = args.lineStart != null ? Number(args.lineStart) : undefined;
     const lineEnd = args.lineEnd != null ? Number(args.lineEnd) : undefined;
+    const maxLinesRaw = args.max_lines != null ? Number(args.max_lines) : undefined;
+    const maxLines =
+      maxLinesRaw != null && Number.isFinite(maxLinesRaw) && maxLinesRaw > 0
+        ? Math.floor(maxLinesRaw)
+        : undefined;
 
     if (!ctx.projectRoot) {
       return { success: false, error: 'No project folder is open.' };
@@ -44,6 +56,11 @@ export const tool: RegisteredTool = {
     const absPath = path.resolve(ctx.projectRoot, relativePath);
     if (!absPath.startsWith(ctx.projectRoot)) {
       return { success: false, error: 'Path must be within the project root.' };
+    }
+
+    const sens = await assertSensitivePathAllowed(ctx.projectRoot, relativePath);
+    if (!sens.ok) {
+      return { success: false, error: sens.error };
     }
 
     try {
@@ -61,8 +78,18 @@ export const tool: RegisteredTool = {
       }
 
       const selectedLines = lines.slice(start - 1, end);
-      const numberedLines = selectedLines.map(
-        (line, i) => `${String(start + i).padStart(6, ' ')}|${line}`,
+      let displayStart = start;
+      let displayEnd = end;
+      let truncatedByMax = false;
+      let linesOut = selectedLines;
+      if (maxLines != null && maxLines > 0 && selectedLines.length > maxLines) {
+        linesOut = selectedLines.slice(0, maxLines);
+        displayEnd = displayStart + linesOut.length - 1;
+        truncatedByMax = true;
+      }
+
+      const numberedLines = linesOut.map(
+        (line, i) => `${String(displayStart + i).padStart(6, ' ')}|${line}`,
       );
 
       const result = numberedLines.join('\n');
@@ -74,9 +101,9 @@ export const tool: RegisteredTool = {
           path: relativePath,
           content: result,
           totalLines,
-          startLine: start,
-          endLine: end,
-          truncated: start > 1 || end < totalLines,
+          startLine: displayStart,
+          endLine: displayEnd,
+          truncated: start > 1 || end < totalLines || truncatedByMax,
         },
       };
     } catch (e) {

@@ -3,6 +3,7 @@ import * as monaco from 'monaco-editor';
 import { useSettings } from '../store/settingsStore';
 import { useApp } from '../store/appStore';
 import { sendChatCompletion } from '../lib/openrouterClient';
+import { getCompletionRouting } from '../lib/completionRouting';
 import type { NormalizedModel } from '../../shared/types';
 
 interface InlineEditWidgetProps {
@@ -114,8 +115,10 @@ Output the modified code only:`;
       let result = '';
 
       // Use the sendChatCompletion helper which handles streaming
+      const routing = getCompletionRouting(settings);
       const response = await sendChatCompletion({
-        apiKey: settings.apiKey,
+        apiKey: routing.apiKey,
+        openAiBaseUrl: routing.openAiBaseUrl,
         model,
         messages,
         temperature: 0.2,
@@ -126,6 +129,8 @@ Output the modified code only:`;
           strategy: 'router',
           freeModels: [] as NormalizedModel[],
         },
+        fallbackModel: settings.fallbackModel || undefined,
+        completionFallbackModels: settings.completionFallbackModels,
         onStreamChunk: (chunk) => {
           if (chunk.type === 'delta' && chunk.content) {
             result += chunk.content;

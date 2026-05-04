@@ -122,6 +122,7 @@ export async function summarizeContext(
   apiKey: string,
   model: string,
   config: SummarizationConfig = DEFAULT_SUMMARIZATION_CONFIG,
+  openAiBaseUrl?: string,
 ): Promise<{ newMessages: ChatMsg[]; summary: string } | null> {
   const analysis = analyzeContext(messages, config);
 
@@ -145,6 +146,7 @@ export async function summarizeContext(
       maxTokens: 1000,
       temperature: 0.3,
       stream: false,
+      openAiBaseUrl,
     });
 
     if (!response.content) {

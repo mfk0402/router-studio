@@ -1,56 +1,163 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useState, useCallback, useMemo } from 'react';
+import { memo, useState, useCallback, useMemo, useEffect, type ReactNode } from 'react';
 import type { ChatMsg } from '../store/appStore';
 import { useApp } from '../store/appStore';
 import { useSettings } from '../store/settingsStore';
+import { useShallow } from 'zustand/react/shallow';
 import { extractUnifiedDiff, previewDiff } from '../lib/diffUtils';
 import { extToLanguage } from '../lib/fileUtils';
 import ThinkingPanel, { extractAnswer, hasThinkingContent } from './ThinkingPanel';
 
 interface ChatMessageProps {
   msg: ChatMsg;
-  onEdit?: (newContent: string) => void;
-  onDelete?: () => void;
-  onFork?: () => void;
+  onEdit?: (messageId: string, newContent: string) => void;
+  onDelete?: (messageId: string) => void;
+  onFork?: (messageId: string) => void;
 }
 
-export default function ChatMessage({ msg, onEdit, onDelete, onFork }: ChatMessageProps) {
+function formatVideoElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `${m}:${r.toString().padStart(2, '0')}` : `${s}s`;
+}
+
+function humanizeVideoPollStatus(status: string): string {
+  switch (status) {
+    case 'pending':
+      return 'Queued';
+    case 'in_progress':
+      return 'Rendering';
+    case 'completed':
+      return 'Done';
+    case 'failed':
+      return 'Failed';
+    case 'cancelled':
+      return 'Cancelled';
+    case 'expired':
+      return 'Expired';
+    default:
+      return status;
+  }
+}
+
+function downloadGeneratedVideo(mediaUrl: string, indexOneBased: number): void {
+  void (async () => {
+    try {
+      const res = await fetch(mediaUrl, { mode: 'cors', credentials: 'omit' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const ext =
+        blob.type.includes('webm') ? 'webm'
+        : blob.type.includes('quicktime') ? 'mov'
+        : blob.type.includes('mp4') ? 'mp4'
+        : 'mp4';
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = `router-studio-video-${indexOneBased}-${Date.now()}.${ext}`;
+      a.rel = 'noopener';
+      a.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      window.open(mediaUrl, '_blank', 'noopener,noreferrer');
+    }
+  })();
+}
+
+function VideoJobProgressPanel({
+  progress,
+}: {
+  progress: NonNullable<ChatMsg['videoRenderProgress']>;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [progress.startedAt]);
+
+  const elapsed = formatVideoElapsed(now - progress.startedAt);
+
+  return (
+    <div
+      className="video-job-progress mb-3 rounded-xl border border-accent/25 bg-gradient-to-br from-accent/[0.08] to-cyan/[0.06] px-3 py-2.5 shadow-sm"
+      role="status"
+      aria-live="polite"
+      aria-label="Video render in progress"
+    >
+      <div className="mb-2 flex items-center justify-between gap-2 text-[11px]">
+        <span className="font-semibold uppercase tracking-wide text-accent">Video render</span>
+        <span className="tabular-nums text-fg-muted">{elapsed}</span>
+      </div>
+      <div className="relative h-1.5 overflow-hidden rounded-full bg-bg-deep/80">
+        <div className="video-job-progress-bar absolute inset-y-0 w-[38%] rounded-full bg-gradient-to-r from-accent to-cyan opacity-90 shadow-[0_0_12px_rgb(99_102_255_/_0.35)]" />
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-fg-muted">
+        <span className="inline-flex gap-1" aria-hidden>
+          <span className="video-job-dot h-1.5 w-1.5 rounded-full bg-accent" />
+          <span className="video-job-dot video-job-dot-delay-1 h-1.5 w-1.5 rounded-full bg-accent" />
+          <span className="video-job-dot video-job-dot-delay-2 h-1.5 w-1.5 rounded-full bg-accent" />
+        </span>
+        <span>
+          {humanizeVideoPollStatus(progress.apiStatus)}
+          {progress.pollIndex > 0 ? ` · check ${progress.pollIndex}` : ''}
+        </span>
+        <span className="font-mono text-[10px] text-fg-subtle">
+          id <span className="text-fg-muted">{progress.jobId.slice(0, 8)}…</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function ChatMessageComponent({ msg, onEdit, onDelete, onFork }: ChatMessageProps) {
   if (msg.role === 'system') return null;
 
   const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState(msg.content);
+  const [editContent, setEditContent] = useState(msg.displayContent ?? msg.content);
 
   const isUser = msg.role === 'user';
 
+  const remarkPlugins = useMemo(() => [remarkGfm], []);
+  const markdownComponents = useMemo(
+    () => ({
+      code: (props: { className?: string; children?: ReactNode }) => (
+        <Code {...(props as CodeProps)} />
+      ),
+      pre: ({ children }: { children?: ReactNode }) => <>{children}</>,
+    }),
+    [],
+  );
+
   const handleStartEdit = () => {
-    setEditContent(msg.content);
+    setEditContent(msg.displayContent ?? msg.content);
     setIsEditing(true);
   };
 
   const handleSaveEdit = () => {
     if (onEdit && editContent.trim()) {
-      onEdit(editContent);
+      onEdit(msg.id, editContent.trim());
     }
     setIsEditing(false);
   };
 
   const handleCancelEdit = () => {
-    setEditContent(msg.content);
+    setEditContent(msg.displayContent ?? msg.content);
     setIsEditing(false);
   };
 
   return (
     <div
       className={[
-        'fade-in group rounded-lg border px-3 py-2',
+        'fade-in group max-w-full rounded-2xl border px-4 py-3 shadow-sm transition-shadow',
         isUser
-          ? 'border-border bg-bg-elevated/60'
-          : 'border-border-soft bg-bg-soft',
+          ? 'border-accent/25 bg-gradient-to-br from-accent/[0.12] to-accent/[0.04]'
+          : 'border-border-soft bg-bg-soft/90 backdrop-blur-[2px]',
       ].join(' ')}
     >
-      <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-wide text-fg-subtle">
-        <span>{isUser ? 'You' : 'Assistant'}</span>
+      <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-medium text-fg-muted">
+        <span className={isUser ? 'text-accent' : 'text-fg-subtle'}>{isUser ? 'You' : 'Assistant'}</span>
         <div className="flex items-center gap-2">
           {msg.modelUsed && <span className="text-fg-muted normal-case">{msg.modelUsed}</span>}
           {!msg.streaming && (
@@ -68,7 +175,7 @@ export default function ChatMessage({ msg, onEdit, onDelete, onFork }: ChatMessa
               )}
               {onFork && (
                 <button
-                  onClick={onFork}
+                  onClick={() => onFork(msg.id)}
                   className="rounded p-0.5 text-fg-muted hover:bg-accent/20 hover:text-accent"
                   title="Fork conversation from here"
                 >
@@ -79,7 +186,7 @@ export default function ChatMessage({ msg, onEdit, onDelete, onFork }: ChatMessa
               )}
               {isUser && onDelete && (
                 <button
-                  onClick={onDelete}
+                  onClick={() => onDelete(msg.id)}
                   className="rounded p-0.5 text-fg-muted hover:bg-danger/20 hover:text-danger"
                   title="Delete this message and all following"
                 >
@@ -119,23 +226,88 @@ export default function ChatMessage({ msg, onEdit, onDelete, onFork }: ChatMessa
           </div>
         </div>
       ) : (
-        <div className="markdown-body">
+        <div className="markdown-body prose-chat">
+          {!isUser && msg.videoRenderProgress && !msg.error ? (
+            <VideoJobProgressPanel progress={msg.videoRenderProgress} />
+          ) : null}
+          {!isUser && msg.generatedVideoUrls && msg.generatedVideoUrls.length > 0 ? (
+            <div className="mb-3 flex flex-col gap-3">
+              <p className="text-[13px] leading-relaxed text-fg-muted">
+                Play inline in the chat, or download to preview offline. Hosted previews may stop working after a
+                while — save the file if you need to keep it.
+              </p>
+              {msg.generatedVideoUrls.map((src, idx) => (
+                <div key={idx} className="flex flex-col gap-2">
+                  <video
+                    src={src}
+                    controls
+                    playsInline
+                    className="max-h-[min(70vh,560px)] w-full max-w-full rounded-xl border border-border-soft shadow-sm"
+                  >
+                    Video playback is not supported.
+                  </video>
+                  <div>
+                    <button
+                      type="button"
+                      className="rounded-md border border-border-soft px-2.5 py-1 text-[11px] text-fg-muted hover:bg-bg-hover hover:text-fg"
+                      onClick={() => downloadGeneratedVideo(src, idx + 1)}
+                    >
+                      Download video
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {!isUser && msg.generatedImageUrls && msg.generatedImageUrls.length > 0 ? (
+            <div className="mb-3 flex flex-col gap-3">
+              {msg.generatedImageUrls.map((src, idx) => (
+                <img
+                  key={idx}
+                  src={src}
+                  alt={`Generated ${idx + 1}`}
+                  className="max-h-[min(70vh,560px)] w-auto max-w-full rounded-xl border border-border-soft object-contain shadow-sm"
+                />
+              ))}
+            </div>
+          ) : null}
           {/* Thinking/Reasoning panel for CoT models */}
           {!isUser && hasThinkingContent(msg.content) && (
             <ThinkingPanel content={msg.content} isStreaming={msg.streaming} />
           )}
           
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              code: (props) => <Code {...(props as CodeProps)} msg={msg} />,
-              pre: ({ children }) => <>{children}</>,
-            }}
-          >
-            {hasThinkingContent(msg.content) 
-              ? (extractAnswer(msg.content) || (msg.streaming ? '…' : ''))
-              : (msg.content || (msg.streaming ? '…' : ''))}
+          <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>
+            {!isUser && hasThinkingContent(msg.content)
+              ? extractAnswer(msg.content) || (msg.streaming ? '…' : '')
+              : isUser
+                ? (msg.displayContent ?? msg.content) || (msg.streaming ? '…' : '')
+                : msg.content || (msg.streaming ? '…' : '')}
           </ReactMarkdown>
+          {!isUser && msg.generatedAudioObjectUrl ? (
+            <div className="mt-3 rounded-xl border border-border-soft bg-bg-deep/40 p-3">
+              <audio
+                src={msg.generatedAudioObjectUrl}
+                controls
+                className="h-10 w-full max-w-lg"
+                preload="metadata"
+              />
+              <div className="mt-2">
+                <button
+                  type="button"
+                  className="rounded-md border border-border-soft px-2 py-1 text-[11px] text-fg-muted hover:bg-bg-hover hover:text-fg"
+                  onClick={() => {
+                    const a = document.createElement('a');
+                    a.href = msg.generatedAudioObjectUrl!;
+                    a.download = msg.ttsAudioFileName ?? 'router-studio-tts.audio';
+                    a.rel = 'noopener';
+                    a.click();
+                  }}
+                >
+                  Download again
+                </button>
+              </div>
+            </div>
+          ) : null}
           {!isUser && !msg.streaming && msg.content && (
             <AssistantActions raw={msg.content} />
           )}
@@ -147,11 +319,10 @@ export default function ChatMessage({ msg, onEdit, onDelete, onFork }: ChatMessa
 
 interface CodeProps {
   className?: string;
-  children?: React.ReactNode;
-  msg: ChatMsg;
+  children?: ReactNode;
 }
 
-function Code({ className, children, msg: _msg }: CodeProps) {
+function Code({ className, children }: CodeProps) {
   const match = /language-([^\s]+)/.exec(className ?? '');
   const lang = match?.[1] ?? 'plaintext';
   const code = String(children ?? '').replace(/\n$/, '');
@@ -177,8 +348,8 @@ function Code({ className, children, msg: _msg }: CodeProps) {
   ]);
   const isShell = shellLangs.has(lang.toLowerCase());
   return (
-    <div className="group my-2 overflow-hidden rounded-md border border-border bg-[#0b0d12]">
-      <div className="flex items-center justify-between border-b border-border px-2 py-1 text-[10px] uppercase text-fg-subtle">
+    <div className="bg-bg-deep/95 overflow-hidden rounded-xl border border-border-soft shadow-inner">
+      <div className="flex items-center justify-between border-b border-border-soft/80 bg-black/20 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide text-fg-subtle">
         <span>{lang}</span>
         <div className="flex gap-1 opacity-0 transition group-hover:opacity-100">
           <CopyButton text={code} />
@@ -254,18 +425,24 @@ function CopyButton({ text }: { text: string }) {
 }
 
 function InsertButton({ code }: { code: string }) {
-  const activeTabPath = useApp((s) => s.activeTabPath);
-  const updateTabContent = useApp((s) => s.updateTabContent);
-  const tabs = useApp((s) => s.tabs);
   const pushLog = useApp((s) => s.pushLog);
+  const updateTabContent = useApp((s) => s.updateTabContent);
+  const { activeTabPath, activeTab } = useApp(
+    useShallow((s) => {
+      const p = s.activeTabPath;
+      return {
+        activeTabPath: p,
+        activeTab: p ? s.tabs.find((x) => x.relativePath === p) : undefined,
+      };
+    }),
+  );
 
   const insert = () => {
-    if (!activeTabPath) {
+    if (!activeTabPath || !activeTab) {
       pushLog('warn', 'No active file to insert into.');
       return;
     }
-    const t = tabs.find((x) => x.relativePath === activeTabPath);
-    if (!t) return;
+    const t = activeTab;
     const newContent = t.content + (t.content.endsWith('\n') ? '' : '\n') + code + '\n';
     updateTabContent(activeTabPath, newContent);
     pushLog('info', `Inserted code into ${activeTabPath}`);
@@ -343,9 +520,16 @@ function suggestFilename(lang: string): string {
 
 function AssistantActions({ raw }: { raw: string }) {
   const setPendingDiff = useApp((s) => s.setPendingDiff);
-  const activeTabPath = useApp((s) => s.activeTabPath);
-  const tabs = useApp((s) => s.tabs);
   const pushLog = useApp((s) => s.pushLog);
+  const { activeTabPath, activeTab } = useApp(
+    useShallow((s) => {
+      const p = s.activeTabPath;
+      return {
+        activeTabPath: p,
+        activeTab: p ? s.tabs.find((x) => x.relativePath === p) : undefined,
+      };
+    }),
+  );
 
   const applyAsPatch = useCallback(async () => {
     const diff = extractUnifiedDiff(raw);
@@ -353,12 +537,11 @@ function AssistantActions({ raw }: { raw: string }) {
       pushLog('warn', 'No unified diff detected in this response.');
       return;
     }
-    if (!activeTabPath) {
+    if (!activeTabPath || !activeTab) {
       pushLog('warn', 'Open a file to apply the patch to.');
       return;
     }
-    const tab = tabs.find((t) => t.relativePath === activeTabPath);
-    if (!tab) return;
+    const tab = activeTab;
     const res = previewDiff(tab.content, diff);
     if (!res.ok || res.newContent === undefined) {
       pushLog('error', `Could not apply patch safely. ${res.error ?? ''}`);
@@ -376,7 +559,7 @@ function AssistantActions({ raw }: { raw: string }) {
       modified: res.newContent,
       source: 'patch',
     });
-  }, [raw, activeTabPath, tabs, setPendingDiff, pushLog]);
+  }, [raw, activeTabPath, activeTab, setPendingDiff, pushLog]);
 
   const hasDiff = extractUnifiedDiff(raw) !== null;
 
@@ -393,3 +576,5 @@ function AssistantActions({ raw }: { raw: string }) {
     </div>
   );
 }
+
+export default memo(ChatMessageComponent);

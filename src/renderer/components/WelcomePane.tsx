@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useApp } from '../store/appStore';
 import { toast } from './ToastContainer';
-import logoFull from '../assets/logo-full.png';
+import logoIcon from '../assets/logo-icon.png';
 
 function basenamePath(p: string): string {
   const s = p.replace(/[/\\]+$/, '');
@@ -113,17 +113,26 @@ export default function WelcomePane() {
     <div className="flex h-full min-h-0 flex-col items-center overflow-y-auto welcome-hero px-6 pb-16 pt-10 sm:px-10">
       <div className="w-full max-w-4xl">
         <div className="mb-10 flex flex-col items-center text-center">
-          <h1 className="sr-only">Router Studio</h1>
-          <div className="brand-logo-plate mb-5">
-            <img
-              src={logoFull}
-              alt="Router Studio"
-              className="h-auto w-[min(100%,20rem)] max-w-full select-none"
-              draggable={false}
-            />
+          <div className="brand-logo-plate mb-6 flex max-w-xl flex-col items-center gap-5 px-8 py-7 sm:flex-row sm:items-center sm:gap-8 sm:py-6 sm:text-left">
+            <span className="brand-mark-icon-wrap shrink-0 p-1">
+              <img
+                src={logoIcon}
+                alt=""
+                className="h-24 w-24 select-none sm:h-28 sm:w-28"
+                draggable={false}
+              />
+            </span>
+            <div className="min-w-0">
+              <h1 className="brand-wordmark text-3xl font-semibold tracking-tight sm:text-4xl">
+                Router Studio
+              </h1>
+              <p className="mt-2 text-balance text-sm font-medium leading-snug text-fg-muted sm:text-base">
+                One workspace for every AI model
+              </p>
+            </div>
           </div>
           <p className="max-w-lg text-balance text-base font-medium leading-relaxed text-fg-muted sm:text-lg">
-            One workspace for every AI model — edit, ship, and delegate work across models without switching tools.
+            Edit, ship, and delegate work across models without switching tools.
           </p>
         </div>
 
@@ -217,27 +226,31 @@ export default function WelcomePane() {
           </>
         )}
 
-        <div className="mb-3 flex items-end justify-between gap-4 px-0.5">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Capabilities</h2>
-          <span className="hidden text-[11px] text-fg-subtle sm:inline">Keyboard-first · see Help → Shortcuts</span>
+        <div className="mb-4 flex flex-col gap-1 px-0.5 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+          <h2 className="section-label">Capabilities</h2>
+          <span className="text-[11px] leading-relaxed text-fg-subtle sm:text-right">
+            Keyboard-first · see Help → Shortcuts
+          </span>
         </div>
 
-        <div className="mb-10 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
+        <ul className="mb-10 flex list-none flex-col gap-3 p-0">
           {features.map((f) => (
-            <div
-              key={f.title}
-              className="group flex gap-3 rounded-xl border border-border-soft bg-bg-elevated p-4 shadow-card transition-all duration-layout hover:border-accent/35 hover:shadow-card-hover"
-            >
-              <span className="select-none text-xl leading-none text-accent/90 transition-transform duration-layout group-hover:scale-105">
-                {f.icon}
-              </span>
-              <div className="min-w-0 text-left">
-                <h3 className="mb-1 text-sm font-semibold text-fg">{f.title}</h3>
-                <p className="text-xs leading-snug text-fg-muted">{f.desc}</p>
+            <li key={f.title}>
+              <div className="glass-panel group flex w-full min-w-0 gap-4 rounded-2xl p-4 transition-all duration-layout hover:ring-2 hover:ring-accent/20 sm:p-5">
+                <span
+                  className="shrink-0 select-none pt-0.5 text-2xl leading-none text-accent/90 transition-transform duration-layout group-hover:scale-105"
+                  aria-hidden
+                >
+                  {f.icon}
+                </span>
+                <div className="min-w-0 flex-1 text-left">
+                  <h3 className="mb-1.5 text-base font-semibold leading-snug text-fg">{f.title}</h3>
+                  <p className="text-sm leading-relaxed text-fg-muted">{f.desc}</p>
+                </div>
               </div>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
 
         <div className="flex flex-wrap items-center gap-3">
           <button
@@ -286,11 +299,11 @@ export default function WelcomePane() {
 
       {cloneOpen && (
         <div
-          className="modal-scrim fixed inset-0 z-[100] flex items-center justify-center p-4 bg-bg/80"
+          className="modal-scrim fixed inset-0 z-[100] flex items-center justify-center p-4 ds-transition"
           onClick={() => !cloneBusy && setCloneOpen(false)}
         >
           <div
-            className="w-full max-w-md rounded-xl border border-border-soft bg-bg-elevated p-5 shadow-float"
+            className="glass-panel glass-modal-lg w-full max-w-md p-5 ds-transition"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="mb-1 text-sm font-semibold text-fg">Clone repository</h3>
@@ -339,11 +352,11 @@ export default function WelcomePane() {
 
       {sshOpen && (
         <div
-          className="modal-scrim fixed inset-0 z-[100] flex items-center justify-center p-4 bg-bg/80"
+          className="modal-scrim fixed inset-0 z-[100] flex items-center justify-center p-4 ds-transition"
           onClick={() => setSshOpen(false)}
         >
           <div
-            className="w-full max-w-md rounded-xl border border-border-soft bg-bg-elevated p-5 shadow-float"
+            className="glass-panel glass-modal-lg w-full max-w-md p-5 ds-transition"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="mb-1 text-sm font-semibold text-fg">SSH & port forwarding</h3>

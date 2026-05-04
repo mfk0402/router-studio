@@ -128,9 +128,9 @@ export default function CommandPalette() {
       },
       {
         id: 'view:zenToggle',
-        label: settings.zenMode ? 'Exit Zen Mode' : 'Enter Zen Mode',
+        label: settings.zenMode ? 'Exit fullscreen AI chat' : 'Enter fullscreen AI chat',
         category: 'view',
-        keywords: ['zen', 'distraction', 'focus', 'minimal', 'fullscreen', 'hide'],
+        keywords: ['zen', 'ai', 'chat', 'assistant', 'fullscreen', 'focus', 'agent'],
         shortcut: settings.zenMode ? 'Esc' : undefined,
         action: async () => {
           await useSettings.getState().update({ zenMode: !settings.zenMode });
@@ -217,6 +217,41 @@ export default function CommandPalette() {
         category: 'ai',
         action: () => {
           setFreeMode(!freeModeEnabled);
+          setShowCommandPalette(false);
+        },
+      },
+      {
+        id: 'ai:composer',
+        label: 'Open Multi-file Composer',
+        category: 'ai',
+        keywords: ['composer', 'multi-file', 'cursor'],
+        action: () => {
+          useApp.getState().setShowComposerPanel(true);
+          setShowCommandPalette(false);
+        },
+      },
+      {
+        id: 'ai:browserPanel',
+        label: 'Toggle Browser Preview Panel',
+        category: 'ai',
+        keywords: ['browser', 'playwright', 'visual'],
+        action: () => {
+          const st = useApp.getState();
+          st.setShowBrowserPanel(!st.showBrowserPanel);
+          setShowCommandPalette(false);
+        },
+      },
+      {
+        id: 'ai:screenshotComposer',
+        label: 'Screenshot → Composer workflow',
+        category: 'ai',
+        keywords: ['screenshot', 'component', 'tailwind', 'attach'],
+        action: () => {
+          useApp.getState().setShowComposerPanel(true);
+          toast.info(
+            'Composer',
+            'Attach a screenshot via the paperclip, describe the component, then Preview impact.',
+          );
           setShowCommandPalette(false);
         },
       },
@@ -344,11 +379,11 @@ export default function CommandPalette() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-24"
+      className="modal-scrim fixed inset-0 z-50 flex items-start justify-center pt-24"
       onClick={() => setShowCommandPalette(false)}
     >
       <div
-        className="w-full max-w-lg rounded-lg border border-border bg-bg-elevated shadow-2xl"
+        className="glass-panel glass-modal-lg w-full max-w-lg ds-transition overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >

@@ -16,8 +16,20 @@ export interface SlashCommand {
   /** If true, the command's output replaces the input instead of being sent */
   transform?: boolean;
   /** Execute the command, return text to send or null to cancel */
-  execute: (args: string, context: CommandContext) => Promise<string | null> | string | null;
+  execute: (
+    args: string,
+    context: CommandContext,
+  ) => Promise<SlashCommandOutcome | null> | SlashCommandOutcome | null;
 }
+
+/** String result, or structured actions handled in AiPanel */
+export type SlashCommandOutcome =
+  | string
+  | null
+  | { openRouterVideo: { prompt: string; aspect_ratio?: string } }
+  | { openRouterTts: { text: string } }
+  /** Show in chat without calling the completion API (e.g. /video with no prompt). */
+  | { usageHint: string };
 
 export interface CommandContext {
   currentFile?: string;
@@ -55,6 +67,42 @@ const builtInCommands: SlashCommand[] = [
     description: 'Save the current conversation as a task',
     category: 'chat',
     execute: () => '[[SAVE_TASK]]',
+  },
+  {
+    name: 'video',
+    description:
+      'OpenRouter async video generation (uses a video model from the catalog; API key required)',
+    usage: '/video your scene description…',
+    category: 'chat',
+    execute: (args) => {
+      const p = args.trim();
+      if (!p) {
+        return {
+          usageHint: [
+            '**`/video`** needs a scene description on the same line.',
+            '',
+            'Example: `/video slow drone shot over the ocean at sunset`',
+            '',
+            'Requires an OpenRouter API key in Settings. Use **Generate video** in the AI header or **`/video`**. Configure defaults in **Settings → Models → Video generation**.',
+          ].join('\n'),
+        };
+      }
+      return { openRouterVideo: { prompt: p } };
+    },
+  },
+  {
+    name: 'tts',
+    description:
+      'OpenRouter text-to-speech (downloads an audio file; set TTS model & voice in Settings → Models)',
+    usage: '/tts Your spoken text…',
+    category: 'chat',
+    execute: (args) => {
+      const p = args.trim();
+      if (!p) {
+        return 'Usage: /tts your text — configure Text-to-speech model and voice in Settings → Models first.';
+      }
+      return { openRouterTts: { text: p } };
+    },
   },
 
   // Code commands
@@ -228,6 +276,26 @@ const builtInCommands: SlashCommand[] = [
     category: 'tools',
     execute: () => 'Please run the linter and help fix any issues found.',
   },
+  {
+    name: 'visual-fix',
+    description: 'Visual debug loop: dev server + Playwright screenshots until [[VISUAL_OK]]',
+    usage: '/visual-fix [url]',
+    category: 'tools',
+    execute: (args) => {
+      const url = args.trim() || 'http://localhost:5173/';
+      return [
+        'Run a **visual-fix** loop:',
+        '',
+        `1) Start or reuse the dev server (e.g. \`run_npm_script\` with the dev script when appropriate).`,
+        `2) \`browser_open\` → ${url}`,
+        '3) `browser_screenshot` and treat the image as the baseline.',
+        '4) Propose minimal CSS/layout fixes with `edit_file`.',
+        '5) Wait for HMR reload, screenshot again, compare — repeat until acceptable.',
+        '',
+        'Emit `[[VISUAL_OK]]` when the UI matches intent; otherwise explain remaining gaps.',
+      ].join('\n');
+    },
+  },
 
   // Utility commands
   {
@@ -374,7 +442,13 @@ export function parseCommandInput(input: string): { command: string; args: strin
 export async function executeCommand(
   input: string,
   context: CommandContext,
-): Promise<{ result: string | null; special?: string }> {
+): Promise<{
+  result: string | null;
+  special?: string;
+  openRouterVideo?: { prompt: string; aspect_ratio?: string };
+  openRouterTts?: { text: string };
+  usageHint?: string;
+}> {
   const parsed = parseCommandInput(input);
   if (!parsed) {
     return { result: input }; // Not a command, return as-is
@@ -385,7 +459,28 @@ export async function executeCommand(
     return { result: `Unknown command: /${parsed.command}. Type /help to see available commands.` };
   }
 
-  const result = await cmd.execute(parsed.args, context);
+  const raw = await cmd.execute(parsed.args, context);
+
+  if (raw && typeof raw === 'object' && 'usageHint' in raw) {
+    const payload = raw as { usageHint: string };
+    return {
+      result: null,
+      special: '[[USAGE_HINT]]',
+      usageHint: payload.usageHint,
+    };
+  }
+
+  if (raw && typeof raw === 'object' && 'openRouterTts' in raw) {
+    const payload = raw as { openRouterTts: { text: string } };
+    return { result: null, special: '[[OPENROUTER_TTS]]', openRouterTts: payload.openRouterTts };
+  }
+
+  if (raw && typeof raw === 'object' && 'openRouterVideo' in raw) {
+    const payload = raw as { openRouterVideo: { prompt: string; aspect_ratio?: string } };
+    return { result: null, special: '[[OPENROUTER_VIDEO]]', openRouterVideo: payload.openRouterVideo };
+  }
+
+  const result = typeof raw === 'string' || raw === null ? raw : null;
 
   // Check for special markers
   if (

@@ -1,4 +1,3 @@
-import { app } from 'electron';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
@@ -7,11 +6,10 @@ import type { RegisteredTool, ToolContext, ToolHandlerResult } from '../../../sh
 import { getSettings, setSettings } from '../../secureStore.js';
 import * as tasksApi from '../../tasks.js';
 import { outlineHeuristic } from '../../treeOutlineHeuristic.js';
-
-const CHECKPOINTS_DIR = 'workspace-checkpoints';
+import { checkpointsUserDataDir } from '../../checkpointsApi.js';
 
 function checkpointsDir(): string {
-  return path.join(app.getPath('userData'), CHECKPOINTS_DIR);
+  return checkpointsUserDataDir();
 }
 
 function runProg(

@@ -4,12 +4,14 @@ import type { RegisteredTool, ToolHandlerResult } from '../../../shared/types.js
 import { getSettings } from '../../secureStore.js';
 import { assertWriteAllowed } from '../../writePolicy.js';
 import { pushWriteUndo } from '../../writeUndoStack.js';
+import { assertSensitivePathAllowed } from '../../security/sensitiveFileGuard.js';
 
 export const tool: RegisteredTool = {
   name: 'create_file',
   description:
     'Create a new file with optional initial content. ' +
-    'Fails if the file already exists. Creates parent directories as needed.',
+    'Fails if the file already exists. Creates parent directories as needed. ' +
+    'When this succeeds, any open editor tab for that path refreshes from disk.',
   category: 'filesystem',
   riskLevel: 'medium',
   schema: {
@@ -40,7 +42,10 @@ export const tool: RegisteredTool = {
 
     // Security: ensure path doesn't escape project root
     const absPath = path.resolve(ctx.projectRoot, relativePath);
-    if (!absPath.startsWith(ctx.projectRoot)) {
+    const rootWithSep = ctx.projectRoot.endsWith(path.sep)
+      ? ctx.projectRoot
+      : ctx.projectRoot + path.sep;
+    if (absPath !== ctx.projectRoot && !absPath.startsWith(rootWithSep)) {
       return { success: false, error: 'Path must be within the project root.' };
     }
 
@@ -48,6 +53,11 @@ export const tool: RegisteredTool = {
     const policy = assertWriteAllowed(settings, relativePath);
     if (!policy.ok) {
       return { success: false, error: policy.error };
+    }
+
+    const sens = await assertSensitivePathAllowed(ctx.projectRoot, relativePath);
+    if (!sens.ok) {
+      return { success: false, error: sens.error };
     }
 
     // Check for protected paths

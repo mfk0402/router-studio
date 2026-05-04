@@ -8,6 +8,7 @@ import type {
   TabState,
 } from '../../shared/types';
 import { redactSecrets } from '../../shared/redactSecrets';
+import { extToLanguage } from '../lib/fileUtils';
 import { useSettings } from './settingsStore';
 
 const MAX_RECENT_PROJECTS = 15;
@@ -29,10 +30,28 @@ export interface OpenTab {
 export interface ChatMsg {
   id: string;
   role: 'user' | 'assistant' | 'system';
+  /** Full text sent to the model (may include tree, files, etc.). */
   content: string;
+  /** Short markdown shown in the thread for user messages; omit to show `content`. */
+  displayContent?: string;
   modelUsed?: string;
   streaming?: boolean;
   error?: string;
+  /** OpenRouter image generation responses (data URLs). */
+  generatedImageUrls?: string[];
+  /** OpenRouter async video API (`/api/v1/videos`) result URLs. */
+  generatedVideoUrls?: string[];
+  /** While polling `GET` on the job, drives progress UI in the thread (not persisted). */
+  videoRenderProgress?: {
+    jobId: string;
+    apiStatus: string;
+    pollIndex: number;
+    startedAt: number;
+  };
+  /** In-memory blob URL for TTS preview (`blob:…`); revoked when chat clears. */
+  generatedAudioObjectUrl?: string;
+  /** Suggested filename for TTS download (e.g. router-studio-tts-….mp3). */
+  ttsAudioFileName?: string;
   createdAt: number;
 }
 
@@ -63,7 +82,14 @@ interface AppState {
   closeTab: (path: string) => void;
   setActiveTab: (path: string | null) => void;
   updateTabContent: (path: string, content: string) => void;
+  /** When the agent writes/edits a file on disk, sync any open tab so the editor matches disk (clean state). */
+  syncOpenTabFromAgentWrite: (path: string, content: string) => void;
+  /** When the agent renamed a file on disk, retarget the open tab from old path to new path. */
+  retargetOpenTabAfterRename: (fromPath: string, toPath: string, content: string) => void;
   markTabSaved: (path: string) => void;
+
+  /** Reload sidebar file tree from disk (after agent filesystem tools). */
+  refreshFileTreeFromDisk: () => Promise<void>;
 
   // editor selection
   selectedCode: string;
@@ -72,6 +98,13 @@ interface AppState {
   // editor instance reference (for outline panel, etc.)
   editorInstance: unknown | null;
   setEditorInstance: (editor: unknown | null) => void;
+
+  /**
+   * One-shot navigation: Monaco applies revealLineInCenter + cursor when the tab matches.
+   */
+  editorRevealRequest: { relativePath: string; lineNumber: number; column?: number } | null;
+  requestEditorReveal: (req: { relativePath: string; lineNumber: number; column?: number }) => void;
+  clearEditorRevealRequest: () => void;
 
   // AI context attachments (images, urls, files, snippets)
   attachments: Attachment[];
@@ -136,6 +169,15 @@ interface AppState {
   showAccountModal: boolean;
   setShowAccountModal: (v: boolean) => void;
 
+  showComposerPanel: boolean;
+  setShowComposerPanel: (v: boolean) => void;
+  showBrowserPanel: boolean;
+  setShowBrowserPanel: (v: boolean) => void;
+
+  /** Incremented to open the OpenRouter video generation modal from anywhere (e.g. Zen mode bar). */
+  videoGenModalKick: number;
+  requestVideoGenModal: () => void;
+
   /** Increment to re-open the welcome tour (Help menu). */
   welcomeTourNonce: number;
   triggerWelcomeTour: () => void;
@@ -171,6 +213,7 @@ interface AppState {
   }> | null;
   setPendingMultiDiff: (d: AppState['pendingMultiDiff']) => void;
   addToPendingMultiDiff: (d: AppState['pendingDiff']) => void;
+  remapPendingDiffPathsAfterRename: (fromPath: string, toPath: string) => void;
 
   // streaming request id (for cancel)
   currentRequestId: string | null;
@@ -210,6 +253,17 @@ export const useApp = create<AppState>((set, get) => ({
   recentProjectRoots: [],
   setProjectRoot: (root) => set({ projectRoot: root }),
   setFileTree: (tree) => set({ fileTree: tree }),
+  refreshFileTreeFromDisk: async () => {
+    const root = get().projectRoot;
+    if (!root) return;
+    try {
+      const tree = await window.api.fs.listFiles();
+      set({ fileTree: tree });
+    } catch (e) {
+      get().pushLog('warn', `File tree refresh failed: ${(e as Error).message}`);
+    }
+  },
+
   touchRecentProject: (absolutePath) =>
     set((s) => ({ recentProjectRoots: touchRecentList(s.recentProjectRoots, absolutePath) })),
   removeRecentProject: (absolutePath) =>
@@ -279,6 +333,25 @@ export const useApp = create<AppState>((set, get) => ({
         t.relativePath === path ? { ...t, content, dirty: content !== t.original } : t,
       ),
     })),
+  syncOpenTabFromAgentWrite: (path, content) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.relativePath === path ? { ...t, content, original: content, dirty: false } : t,
+      ),
+    })),
+  retargetOpenTabAfterRename: (fromPath, toPath, content) =>
+    set((s) => {
+      const name = toPath.split(/[/\\]/).pop() ?? toPath;
+      const language = extToLanguage(toPath);
+      const tabs = s.tabs.map((t) =>
+        t.relativePath === fromPath
+          ? { ...t, relativePath: toPath, name, language, content, original: content, dirty: false }
+          : t,
+      );
+      let active = s.activeTabPath;
+      if (active === fromPath) active = toPath;
+      return { tabs, activeTabPath: active };
+    }),
   markTabSaved: (path) =>
     set((s) => ({
       tabs: s.tabs.map((t) =>
@@ -292,6 +365,10 @@ export const useApp = create<AppState>((set, get) => ({
   editorInstance: null,
   setEditorInstance: (editor) => set({ editorInstance: editor }),
 
+  editorRevealRequest: null,
+  requestEditorReveal: (req) => set({ editorRevealRequest: req }),
+  clearEditorRevealRequest: () => set({ editorRevealRequest: null }),
+
   attachments: [],
   addAttachment: (a) => set((s) => ({ attachments: [...s.attachments, a] })),
   removeAttachment: (id) =>
@@ -302,14 +379,28 @@ export const useApp = create<AppState>((set, get) => ({
   addChatMessage: (msg) => set((s) => ({ chat: [...s.chat, msg] })),
   updateChatMessage: (id, patch) =>
     set((s) => ({ chat: s.chat.map((m) => (m.id === id ? { ...m, ...patch } : m)) })),
-  clearChat: () => set({ chat: [] }),
+  clearChat: () =>
+    set((s) => {
+      for (const m of s.chat) {
+        const u = m.generatedAudioObjectUrl;
+        if (u?.startsWith('blob:')) URL.revokeObjectURL(u);
+      }
+      return { chat: [] };
+    }),
   editMessageAndBranch: (messageId, newContent) =>
     set((s) => {
       const idx = s.chat.findIndex((m) => m.id === messageId);
       if (idx === -1) return s;
       // Keep messages up to and including the edited one, update content
       const newChat = s.chat.slice(0, idx + 1).map((m, i) =>
-        i === idx ? { ...m, content: newContent, createdAt: Date.now() } : m,
+        i === idx
+          ? {
+              ...m,
+              content: newContent,
+              displayContent: newContent,
+              createdAt: Date.now(),
+            }
+          : m,
       );
       return { chat: newChat };
     }),
@@ -458,6 +549,14 @@ export const useApp = create<AppState>((set, get) => ({
   showAccountModal: false,
   setShowAccountModal: (v) => set({ showAccountModal: v }),
 
+  showComposerPanel: false,
+  setShowComposerPanel: (v) => set({ showComposerPanel: v }),
+  showBrowserPanel: false,
+  setShowBrowserPanel: (v) => set({ showBrowserPanel: v }),
+
+  videoGenModalKick: 0,
+  requestVideoGenModal: () => set((s) => ({ videoGenModalKick: s.videoGenModalKick + 1 })),
+
   welcomeTourNonce: 0,
   triggerWelcomeTour: () => {
     void useSettings.getState().update({ hasCompletedProductTour: false });
@@ -495,6 +594,23 @@ export const useApp = create<AppState>((set, get) => ({
         return { pendingMultiDiff: updated };
       }
       return { pendingMultiDiff: [...existing, d] };
+    }),
+
+  remapPendingDiffPathsAfterRename: (fromPath, toPath) =>
+    set((s) => {
+      const norm = (p: string) => p.replace(/\\/g, '/').replace(/^\/+/, '');
+      const nf = norm(fromPath);
+      let pendingDiff = s.pendingDiff;
+      if (pendingDiff && norm(pendingDiff.relativePath) === nf) {
+        pendingDiff = { ...pendingDiff, relativePath: toPath };
+      }
+      let pendingMultiDiff = s.pendingMultiDiff;
+      if (pendingMultiDiff?.length) {
+        pendingMultiDiff = pendingMultiDiff.map((d) =>
+          norm(d.relativePath) === nf ? { ...d, relativePath: toPath } : d,
+        );
+      }
+      return { pendingDiff, pendingMultiDiff };
     }),
 
   currentRequestId: null,
@@ -563,6 +679,11 @@ export const useApp = create<AppState>((set, get) => ({
           id: m.id,
           role: m.role,
           content: m.content,
+          displayContent: 'displayContent' in m ? (m as ChatMsg).displayContent : undefined,
+          modelUsed: 'modelUsed' in m ? (m as ChatMsg).modelUsed : undefined,
+          generatedImageUrls: 'generatedImageUrls' in m ? (m as ChatMsg).generatedImageUrls : undefined,
+          generatedVideoUrls: 'generatedVideoUrls' in m ? (m as ChatMsg).generatedVideoUrls : undefined,
+          error: 'error' in m ? (m as ChatMsg).error : undefined,
           createdAt: Date.now(),
         }));
         set({ chat: restoredChat });
@@ -590,6 +711,11 @@ export const useApp = create<AppState>((set, get) => ({
         id: m.id,
         role: m.role,
         content: m.content,
+        ...(m.displayContent !== undefined ? { displayContent: m.displayContent } : {}),
+        ...(m.modelUsed !== undefined ? { modelUsed: m.modelUsed } : {}),
+        ...(m.generatedImageUrls?.length ? { generatedImageUrls: m.generatedImageUrls } : {}),
+        ...(m.generatedVideoUrls?.length ? { generatedVideoUrls: m.generatedVideoUrls } : {}),
+        ...(m.error !== undefined ? { error: m.error } : {}),
       }));
 
       await window.api.session.save({

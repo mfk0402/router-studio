@@ -14,13 +14,47 @@ export default function ToolApprovalModal() {
 
   if (!pendingApproval) return null;
 
-  const { id, toolName, args, preview, riskLevel } = pendingApproval;
+  const {
+    id,
+    toolName,
+    args,
+    preview,
+    riskLevel,
+    shellRiskScore,
+    shellRiskReasons,
+    shellSaferAlternative,
+  } = pendingApproval;
 
   const handleResponse = async (action: ToolApprovalResponse['action'], pattern?: string) => {
     await respondApproval({ id, action, pattern });
     setShowPatternInput(false);
     setPatternInput('');
   };
+
+  const copySafer = async () => {
+    if (!shellSaferAlternative) return;
+    try {
+      await navigator.clipboard.writeText(shellSaferAlternative);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const shellRiskPill =
+    toolName === 'run_shell' && shellRiskScore != null ? (
+      <span
+        className={
+          'rounded px-2 py-0.5 text-[10px] font-semibold ' +
+          (shellRiskScore >= 4
+            ? 'bg-danger/25 text-danger'
+            : shellRiskScore >= 2
+              ? 'bg-warn/20 text-warn'
+              : 'bg-success/20 text-success')
+        }
+      >
+        Shell score {shellRiskScore}/5
+      </span>
+    ) : null;
 
   const riskBadge =
     riskLevel === 'high' ? (
@@ -44,12 +78,13 @@ export default function ToolApprovalModal() {
       : String(args.path ?? '');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-lg rounded-lg border border-border bg-bg-elevated shadow-2xl">
+    <div className="modal-scrim fixed inset-0 z-50 flex items-center justify-center p-4 ds-transition">
+      <div className="glass-panel glass-modal-lg w-full max-w-lg overflow-hidden ds-transition">
         <div className="flex items-center justify-between border-b border-border-soft px-4 py-3">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-fg">Tool Approval Required</span>
             {riskBadge}
+            {shellRiskPill}
           </div>
           <button
             onClick={() => handleResponse('deny')}
@@ -83,6 +118,27 @@ export default function ToolApprovalModal() {
               <pre className="max-h-24 overflow-auto rounded border border-border bg-bg px-2 py-1.5 font-mono text-xs text-fg-muted">
                 {preview}
               </pre>
+            </div>
+          )}
+
+          {toolName === 'run_shell' && shellRiskScore != null && (
+            <div className="mb-3 rounded border border-border-soft bg-bg-soft p-2">
+              {shellRiskReasons && shellRiskReasons.length > 0 && (
+                <ul className="mb-2 list-disc pl-4 text-[11px] text-fg-muted">
+                  {shellRiskReasons.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              )}
+              {shellSaferAlternative ? (
+                <button
+                  type="button"
+                  onClick={() => void copySafer()}
+                  className="rounded border border-border px-2 py-1 text-[11px] text-accent hover:bg-accent/10"
+                >
+                  Copy safer alternative
+                </button>
+              ) : null}
             </div>
           )}
 

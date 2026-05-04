@@ -3,46 +3,67 @@
 @tailwind utilities;
 
 /**
- * Router Studio — brand-aligned palettes (logo: indigo / violet / cyan / rose gradients).
- * Light mode is the default first paint; dark mode uses slightly lifted surfaces + logo “plates”
- * so full-color lockups stay legible.
+ * Router Studio — dark mode tokens align with `router_studio_design_system.md` (v1.0): §4 Color,
+ * §8 Shadow/Glow, §15 tabs (cyan underline). Light mode stays legacy-soft parity.
  */
 html.dark {
   color-scheme: dark;
-  --color-bg-default: 22 24 34;
-  --color-bg-soft: 28 31 44;
-  --color-bg-elevated: 34 38 52;
-  --color-bg-hover: 44 50 68;
-  --color-bg-deep: 16 18 28;
-  --color-border-default: 55 62 82;
-  --color-border-soft: 40 45 60;
-  --color-fg-default: 238 241 247;
-  --color-fg-muted: 163 172 191;
-  --color-fg-subtle: 120 130 154;
-  --color-accent-default: 139 146 248;
-  --color-accent-muted: 99 102 241;
-  --color-success: 94 234 132;
-  --color-warn: 251 191 36;
-  --color-danger: 248 113 113;
-  --shadow-chrome: 0 1px 0 rgb(255 255 255 / 0.05) inset;
-  --shadow-float: 0 16px 48px rgb(0 0 0 / 0.5);
-  --shadow-card: 0 2px 14px rgb(0 0 0 / 0.22);
-  --shadow-card-hover: 0 8px 28px rgb(0 0 0 / 0.32);
+  /* §4 surfaces — bg #060B12 · surface #0B1220 · surface-2 #111827 · surface-3 #161C2A */
+  --color-bg-default: 6 11 18;
+  --color-bg-soft: 11 18 32;
+  --color-bg-elevated: 17 24 39;
+  --color-bg-hover: 22 28 42;
+  --color-bg-deep: 6 11 18;
+  --color-border-default: 38 48 67;
+  --color-border-soft: 55 62 78;
+  --color-fg-default: 230 232 235;
+  --color-fg-muted: 167 176 192;
+  --color-fg-subtle: 116 128 148;
+  --color-accent-default: 99 102 255;
+  --color-accent-muted: 79 70 229;
+  --color-accent-fg: 255 255 255;
+  /** §4 electric cyan #22D3EE — links, editor tab indicator. */
+  --color-accent-electric: 34 211 238;
+  /** §4 info cyan #06B6D4 */
+  --color-cyan: 6 182 212;
+  --color-violet: 168 85 247;
+  --color-success: 34 197 94;
+  --color-warn: 245 158 11;
+  --color-danger: 239 68 68;
+
+  --ds-gradient-brand: linear-gradient(135deg, #6366ff 0%, #22d3ee 50%, #a855f7 100%);
+  --ds-gradient-primary: linear-gradient(135deg, #4f46e5 0%, #6366ff 45%, #22d3ee 100%);
+  --ds-gradient-surface: linear-gradient(180deg, rgba(17, 24, 39, 0.92), rgba(11, 18, 32, 0.96));
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.28);
+  --shadow-md: 0 8px 24px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 18px 48px rgb(0 0 0 / 0.36);
+  --shadow-xl: 0 28px 80px rgb(0 0 0 / 0.45);
+  --glow-primary: 0 0 0 1px rgb(99 102 255 / 0.35), 0 0 24px rgb(99 102 255 / 0.24);
+  --glow-cyan: 0 0 0 1px rgb(34 211 238 / 0.3), 0 0 22px rgb(34 211 238 / 0.18);
+  --glow-danger: 0 0 0 1px rgb(239 68 68 / 0.35), 0 0 20px rgb(239 68 68 / 0.18);
+
+  --shadow-chrome: 0 1px 0 rgb(255 255 255 / 0.06) inset;
+  --shadow-float:
+    var(--shadow-xl),
+    0 0 0 1px rgb(0 0 0 / 0.35),
+    0 1px 0 rgb(255 255 255 / 0.04) inset;
+  --shadow-card: var(--shadow-md);
+  --shadow-card-hover: var(--shadow-lg);
   --ring-subtle: rgb(255 255 255 / 0.08);
-  --scrollbar-thumb: 55 62 82;
-  --scrollbar-thumb-hover: 76 84 110;
-  --selection-bg: 139 146 248;
-  --selection-fg: 248 250 252;
-  --focus-ring: 165 180 252;
-  --markdown-fg: 238 241 247;
-  --markdown-muted: 163 172 191;
-  --markdown-link: 125 211 252;
-  --markdown-code-bg: 34 38 52;
-  --markdown-code-border: 55 62 82;
-  --markdown-pre-bg: 22 24 34;
-  --markdown-table-border: 55 62 82;
-  --markdown-blockquote-border: 55 62 82;
-  --modal-scrim: rgb(8 10 18 / 0.62);
+  --scrollbar-thumb: 38 48 67;
+  --scrollbar-thumb-hover: 56 68 90;
+  --selection-bg: 99 102 255;
+  --selection-fg: 255 255 255;
+  --focus-ring: 99 102 255;
+  --markdown-fg: 230 232 235;
+  --markdown-muted: 167 176 192;
+  --markdown-link: 34 211 238;
+  --markdown-code-bg: 17 24 39;
+  --markdown-code-border: 38 48 67;
+  --markdown-pre-bg: 11 18 32;
+  --markdown-table-border: 38 48 67;
+  --markdown-blockquote-border: 38 48 67;
+  --modal-scrim: rgb(6 11 18 / 0.78);
 }
 
 html.light {
@@ -57,8 +78,12 @@ html.light {
   --color-fg-default: 30 27 48;
   --color-fg-muted: 91 85 120;
   --color-fg-subtle: 113 106 140;
-  --color-accent-default: 99 102 241;
+  --color-accent-default: 99 102 255;
   --color-accent-muted: 79 70 229;
+  --color-accent-fg: 255 255 255;
+  --color-accent-electric: 34 211 238;
+  --color-cyan: 8 145 178;
+  --color-violet: 124 58 237;
   --color-success: 22 163 74;
   --color-warn: 217 119 6;
   --color-danger: 220 38 38;
@@ -69,9 +94,9 @@ html.light {
   --ring-subtle: rgb(76 63 145 / 0.12);
   --scrollbar-thumb: 198 191 220;
   --scrollbar-thumb-hover: 164 154 195;
-  --selection-bg: 129 140 248;
+  --selection-bg: 99 102 255;
   --selection-fg: 255 255 255;
-  --focus-ring: 99 102 241;
+  --focus-ring: 99 102 255;
   --markdown-fg: 30 27 48;
   --markdown-muted: 91 85 120;
   --markdown-link: 8 145 178;
@@ -92,6 +117,14 @@ body,
 }
 
 body {
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -116,19 +149,22 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  /* Stable gradient fill on dark surfaces (avoids “punched out” letter interiors). */
+  -webkit-text-fill-color: transparent;
 }
 
 html.dark .brand-wordmark {
   background: linear-gradient(
     108deg,
     rgb(224 231 255) 0%,
-    rgb(165 180 252) 28%,
-    rgb(196 181 253) 55%,
-    rgb(251 182 230) 100%
+    rgb(165 180 252) 22%,
+    rgb(34 211 238) 72%,
+    rgb(196 181 253) 100%
   );
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  -webkit-text-fill-color: transparent;
 }
 
 /**
@@ -153,13 +189,13 @@ html.dark .brand-logo-plate {
   box-shadow:
     0 1px 0 rgb(255 255 255 / 0.07) inset,
     0 22px 48px rgb(0 0 0 / 0.45),
-    0 0 80px rgb(99 102 241 / 0.14);
+    0 0 80px rgb(99 102 255 / 0.14);
 }
 
 html.light .brand-logo-plate {
   background: linear-gradient(180deg, rgb(255 255 255) 0%, rgb(252 251 254) 100%);
   border: 1px solid rgb(var(--color-border-soft));
-  box-shadow: var(--shadow-card), 0 16px 40px rgb(99 102 241 / 0.07);
+  box-shadow: var(--shadow-card), 0 16px 40px rgb(99 102 255 / 0.07);
 }
 
 /** Small icon badge — menu bar, settings header, etc. */
@@ -198,12 +234,10 @@ html.light .brand-mark-icon-wrap {
 }
 
 html.dark .welcome-hero {
-  background: radial-gradient(
-      ellipse 120% 80% at 50% -30%,
-      rgb(99 102 241 / 0.12),
-      transparent 55%
-    ),
-    linear-gradient(180deg, rgb(var(--color-bg-soft) / 0.85) 0%, rgb(var(--color-bg-default)) 45%);
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -35%, rgb(99 102 255 / 0.14), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 90% 0%, rgb(34 211 238 / 0.06), transparent 45%),
+    linear-gradient(180deg, rgb(var(--color-bg-soft) / 0.92) 0%, rgb(var(--color-bg-default)) 48%);
 }
 
 .modal-scrim {
@@ -218,8 +252,9 @@ input:focus-visible,
 textarea:focus-visible,
 select:focus-visible,
 summary:focus-visible {
-  outline: 2px solid rgb(var(--focus-ring) / 0.55);
+  outline: 2px solid rgb(var(--focus-ring) / 0.75);
   outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgb(var(--focus-ring) / 0.22);
 }
 
 button:focus:not(:focus-visible),
@@ -251,8 +286,14 @@ textarea:focus:not(:focus-visible) {
 /* Markdown prose tweaks for chat */
 .markdown-body {
   color: rgb(var(--markdown-fg));
-  font-size: 13.5px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.markdown-body.prose-chat > :first-child {
+  margin-top: 0;
+}
+.markdown-body.prose-chat > :last-child {
+  margin-bottom: 0;
 }
 .markdown-body p {
   margin: 0 0 0.6em 0;
@@ -325,8 +366,72 @@ textarea:focus:not(:focus-visible) {
 }
 
 /* subtle animation utility */
+/* §5 Label — panel section headers */
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8ea0bf;
+}
+
+/**
+ * §11 Prompt input — elevated composer field (`router_studio_design_system.md`).
+ */
+.prompt-input-ds {
+  min-height: 92px;
+  border-radius: 16px;
+  padding: 14px;
+  background: linear-gradient(180deg, rgba(17, 24, 39, 0.96), rgba(11, 18, 32, 0.98));
+  border: 1px solid rgba(99, 102, 255, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    var(--shadow-md);
+}
+
+html.light .prompt-input-ds {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.98), rgb(var(--color-bg-soft)));
+  border: 1px solid rgba(99, 102, 255, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.85),
+    var(--shadow-card);
+}
+
+.prompt-input-ds:focus {
+  outline: none;
+  border-color: rgba(99, 102, 255, 0.82);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 0 0 3px rgb(99 102 255 / 0.18),
+    var(--shadow-md);
+}
+
+textarea.prompt-input-ds:focus-visible {
+  outline: none;
+  outline-offset: 0;
+  border-color: rgba(99, 102, 255, 0.82);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 0 0 3px rgb(99 102 255 / 0.18),
+    var(--shadow-md);
+}
+
+html.light .prompt-input-ds:focus {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.85),
+    0 0 0 3px rgb(99 102 255 / 0.16),
+    var(--shadow-card);
+}
+
+html.light .prompt-input-ds:focus-visible {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.85),
+    0 0 0 3px rgb(99 102 255 / 0.16),
+    var(--shadow-card);
+}
+
 .fade-in {
-  animation: fadeIn 140ms ease-out;
+  animation: fadeIn 170ms ease-out;
 }
 @keyframes fadeIn {
   from {
@@ -337,4 +442,146 @@ textarea:focus:not(:focus-visible) {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Design kit — glass surfaces + motion (150–200ms ease-out) */
+.glass-panel {
+  border-radius: 12px;
+  background: linear-gradient(
+    145deg,
+    rgb(var(--color-bg-elevated) / 0.88) 0%,
+    rgb(var(--color-bg-soft) / 0.52) 100%
+  );
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgb(var(--color-border-default) / 0.38);
+  box-shadow: var(--shadow-card), var(--shadow-chrome);
+}
+
+/** Large modals / pickers — 16px radius + lift */
+.glass-modal-lg {
+  border-radius: 16px;
+  box-shadow: var(--shadow-float), var(--shadow-card), var(--shadow-chrome);
+}
+
+/** Title bar strip under system chrome */
+.chrome-menubar {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--color-bg-elevated) / 0.94) 0%,
+    rgb(var(--color-bg-soft) / 0.82) 100%
+  );
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgb(var(--color-border-default) / 0.45);
+  box-shadow: var(--shadow-chrome);
+}
+
+.chrome-dropdown {
+  background: linear-gradient(
+    145deg,
+    rgb(var(--color-bg-elevated) / 0.96) 0%,
+    rgb(var(--color-bg-soft) / 0.88) 100%
+  );
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgb(var(--color-border-default) / 0.42);
+  border-radius: 12px;
+  box-shadow: var(--shadow-float);
+}
+
+.chrome-tabstrip {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--color-bg-elevated) / 0.9) 0%,
+    rgb(var(--color-bg-soft) / 0.62) 100%
+  );
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgb(var(--color-border-default) / 0.38);
+  box-shadow: var(--shadow-chrome);
+}
+
+.ai-chrome-header {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--color-bg-elevated) / 0.92) 0%,
+    rgb(var(--color-bg-soft) / 0.72) 100%
+  );
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgb(var(--color-border-default) / 0.38);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset;
+}
+
+.ai-chrome-band {
+  background: rgb(var(--color-bg-soft) / 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgb(var(--color-border-default) / 0.28);
+}
+
+.ai-chrome-footer {
+  background: rgb(var(--color-bg-soft) / 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid rgb(var(--color-border-default) / 0.28);
+}
+
+.workspace-panel {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--color-bg-soft) / 0.96) 0%,
+    rgb(var(--color-bg-default) / 0.88) 100%
+  );
+}
+
+.panel-chrome {
+  background: linear-gradient(
+    0deg,
+    rgb(var(--color-bg-elevated) / 0.94) 0%,
+    rgb(var(--color-bg-soft) / 0.8) 100%
+  );
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid rgb(var(--color-border-default) / 0.4);
+}
+
+.ds-transition {
+  transition-duration: 180ms;
+  transition-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+/* OpenRouter video job — indeterminate bar + polling dots */
+@keyframes video-job-bar-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(280%);
+  }
+}
+.video-job-progress-bar {
+  animation: video-job-bar-slide 1.8s ease-in-out infinite;
+}
+@keyframes video-job-dot-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.video-job-dot {
+  animation: video-job-dot-pulse 1.2s ease-in-out infinite;
+}
+.video-job-dot-delay-1 {
+  animation-delay: 0.2s;
+}
+.video-job-dot-delay-2 {
+  animation-delay: 0.4s;
 }

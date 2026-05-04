@@ -8,6 +8,7 @@ import {
   formatTokenCount,
   DEFAULT_SUMMARIZATION_CONFIG,
 } from '../lib/contextSummarizer';
+import { getCompletionRouting } from '../lib/completionRouting';
 import { toast } from './ToastContainer';
 
 interface Props {
@@ -47,12 +48,22 @@ export function ContextIndicator({ onCompact }: Props) {
     try {
       let result;
 
-      if (useAI && settings.apiKey) {
+      const routing = getCompletionRouting(settings);
+
+      if (useAI && (!routing.openAiBaseUrl && !routing.apiKey?.trim())) {
+        toast.info('Add an OpenRouter API key in Settings, or switch to a local OpenAI-compatible provider.');
+        setCompacting(false);
+        return;
+      }
+
+      if (useAI && (routing.openAiBaseUrl || routing.apiKey?.trim())) {
         toast.info('Generating AI summary...');
         result = await summarizeContext(
           chat,
-          settings.apiKey,
+          routing.apiKey,
           settings.defaultModel,
+          DEFAULT_SUMMARIZATION_CONFIG,
+          routing.openAiBaseUrl,
         );
       } else {
         result = compactContextLocally(chat);
@@ -136,16 +147,16 @@ export function ContextIndicator({ onCompact }: Props) {
           {/* Dropdown for AI summarization */}
           {settings.apiKey && !compacting && (
             <div className="absolute top-full left-0 mt-1 hidden group-hover:block z-10">
-              <div className="bg-[#252526] border border-[#444] rounded shadow-lg py-1 min-w-[120px]">
+              <div className="chrome-dropdown py-1 min-w-[120px]">
                 <button
                   onClick={() => handleCompact(false)}
-                  className="w-full px-3 py-1 text-left text-[10px] text-fg-muted hover:bg-[#333] hover:text-fg"
+                  className="w-full px-3 py-1 text-left text-[10px] text-fg-muted hover:bg-bg-hover hover:text-fg"
                 >
                   Quick compact
                 </button>
                 <button
                   onClick={() => handleCompact(true)}
-                  className="w-full px-3 py-1 text-left text-[10px] text-fg-muted hover:bg-[#333] hover:text-fg"
+                  className="w-full px-3 py-1 text-left text-[10px] text-fg-muted hover:bg-bg-hover hover:text-fg"
                 >
                   AI summary
                 </button>

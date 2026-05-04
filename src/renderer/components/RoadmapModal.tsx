@@ -49,7 +49,7 @@ export default function RoadmapModal() {
       onClick={() => setOpen(false)}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border-soft bg-bg-elevated shadow-float ring-1 ring-subtle"
+        className="glass-panel glass-modal-lg flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden ds-transition ring-1 ring-subtle"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-border-soft px-5 py-4 shadow-chrome">

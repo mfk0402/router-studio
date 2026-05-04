@@ -1,14 +1,24 @@
 import { BrowserWindow, ipcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { IPC_INVOKE_CHANNELS } from './ipcChannels.js';
+
+/**
+ * Channel list lives in ipcChannels.ts — keep it in sync with every ipcMain.handle below.
+ *
+ * Note: Do not verify handlers via ipcMain.listeners('handle:…'); invoke handlers are not
+ * exposed that way in Electron, so that pattern falsely reports every channel as missing.
+ */
 import * as fsApi from './fileSystem.js';
 import * as workspaceApi from './workspace.js';
 import * as orApi from './openrouter.js';
+import * as orVideoApi from './openrouterVideo.js';
+import * as orSpeechApi from './openrouterSpeech.js';
 import * as store from './secureStore.js';
 import * as term from './terminal.js';
 import * as rules from './rules.js';
 import * as ctxApi from './context.js';
 import * as tasksApi from './tasks.js';
+import * as checkpointsApi from './checkpointsApi.js';
 import * as toolsApi from './tools/index.js';
 import * as sessionApi from './session.js';
 import * as diagnosticsApi from './diagnostics.js';
@@ -28,6 +38,8 @@ import type {
   AgentTask,
   AppSettings,
   ChatCompletionRequest,
+  OpenRouterSpeechRequest,
+  OpenRouterVideoSubmitRequest,
   Rule,
   ToolApprovalResponse,
   ToolPolicy,
@@ -140,6 +152,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // ---- openrouter ----
   ipcMain.handle('openrouter:testKey', async (_e, apiKey: string) => orApi.testApiKey(apiKey));
   ipcMain.handle('openrouter:listModels', async (_e, apiKey: string) => orApi.listModels(apiKey));
+  ipcMain.handle(
+    'openrouter:listOpenAiModels',
+    async (_e, openAiBaseUrl: string, apiKey: string) =>
+      orApi.listOpenAiCompatibleModels(openAiBaseUrl, apiKey),
+  );
   ipcMain.handle('openrouter:chat', async (_e, req: ChatCompletionRequest) => {
     try {
       const res = await orApi.chatCompletion(req);
@@ -157,6 +174,19 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return id;
   });
   ipcMain.handle('openrouter:chatStreamCancel', async (_e, id: string) => orApi.cancelStream(id));
+  ipcMain.handle(
+    'openrouter:videoSubmit',
+    async (_e, apiKey: string, req: OpenRouterVideoSubmitRequest) =>
+      orVideoApi.submitVideoJob(apiKey, req),
+  );
+  ipcMain.handle(
+    'openrouter:videoPoll',
+    async (_e, apiKey: string, pollingUrl: string) => orVideoApi.pollVideoJob(apiKey, pollingUrl),
+  );
+  ipcMain.handle(
+    'openrouter:speech',
+    async (_e, apiKey: string, req: OpenRouterSpeechRequest) => orSpeechApi.createSpeech(apiKey, req),
+  );
 
   // ---- terminal ----
   ipcMain.handle(
@@ -195,17 +225,34 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('tasks:save', async (_e, task: AgentTask) => tasksApi.saveTask(task));
   ipcMain.handle('tasks:delete', async (_e, id: string) => tasksApi.deleteTask(id));
 
+  ipcMain.handle('checkpoints:list', async () => checkpointsApi.listCheckpointSummaries());
+  ipcMain.handle('checkpoints:get', async (_e, id: string) => checkpointsApi.readCheckpoint(id));
+  ipcMain.handle('checkpoints:restore', async (_e, id: string) => {
+    const root = fsApi.getRoot();
+    if (!root) return { ok: false as const, error: 'No project folder is open.' };
+    return checkpointsApi.restoreCheckpoint(id, root);
+  });
+  ipcMain.handle('checkpoints:delete', async (_e, id: string) => checkpointsApi.deleteCheckpoint(id));
+
   // ---- tools ----
-  ipcMain.handle('tools:listDefinitions', async () => toolsApi.getToolDefinitions());
+  ipcMain.handle('tools:listDefinitions', async (_e, productMode?: AppSettings['productMode']) =>
+    toolsApi.getToolDefinitions(productMode),
+  );
   ipcMain.handle(
     'tools:execute',
     async (
       _e,
       toolName: string,
       args: Record<string, unknown>,
-      meta?: { taskId?: string; requestId?: string },
+      meta?: { taskId?: string; requestId?: string; productMode?: AppSettings['productMode'] },
     ) => {
-      return toolsApi.executeTool(toolName, args, meta?.requestId, meta?.taskId ?? null);
+      return toolsApi.executeTool(
+        toolName,
+        args,
+        meta?.requestId,
+        meta?.taskId ?? null,
+        meta?.productMode ?? null,
+      );
     },
   );
   ipcMain.handle('tools:getPolicy', async (_e, toolName: string) =>
