@@ -115,8 +115,8 @@ npm run pack:check  # dry-run npm tarball (CI runs this too)
 
 **GitHub Releases**
 
-1. Locally: `npm run verify`, then platform builds (`npm run build:win` / `build:mac` / `build:linux`).
-2. Upload **`release/`** artifacts (installer, `.zip`, `.blockmap` where produced) and write short release notes (features, breaking changes, signing status).
+1. **Automated (recommended):** push an annotated Git tag **`v*`** matching [`package.json`](package.json) `version` — see **Cutting a GitHub Release** in [`CONTRIBUTING.md`](CONTRIBUTING.md). [.github/workflows/release.yml](.github/workflows/release.yml) builds installers on Ubuntu, Windows, and macOS runners and attaches them to a GitHub Release.
+2. **Manual fallback:** Locally run `npm run verify`, then `npm run build:win` / `build:mac` / `build:linux`; upload **`release/`** installers (`.exe`, `.zip`, `.dmg`, `.AppImage`, etc.) plus release notes (signing status, breaking changes).
 
 **npm registry (optional)**
 

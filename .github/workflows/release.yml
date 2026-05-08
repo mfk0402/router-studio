@@ -1,0 +1,110 @@
+# Build signed/unsigned installers for each OS and publish a GitHub Release when you push a version tag (e.g. v1.0.0).
+#
+# Optional repo secrets for code signing (see package.json → build + CI docs):
+#   WIN_CSC_LINK + WIN_CSC_KEY_PASSWORD — Windows PFX (base64 or URL)
+#   CSC_LINK + CSC_KEY_PASSWORD — macOS .p12
+#
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-desktop:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            script: npm run build:win
+          - os: ubuntu-latest
+            platform: linux
+            script: npm run build:linux
+          - os: macos-latest
+            platform: macos
+            script: npm run build:mac
+
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Linux — AppImage / FUSE deps
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 fuse squashfs-tools
+
+      - run: npm ci
+
+      - run: npm run test:unit
+
+      - name: electron-builder installers
+        run: ${{ matrix.script }}
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Keep installers only (drop unpacked dirs)
+        shell: bash
+        run: |
+          set -euo pipefail
+          find release -mindepth 1 -maxdepth 1 -type d \
+            \( -name 'win-unpacked' -o -name 'linux-unpacked' \
+            -o -name 'linux-arm64-unpacked' -o -name 'mac' -o -name 'mac-arm64' \) \
+            -exec rm -rf '{}' + || true
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.platform }}
+          path: release/
+          if-no-files-found: error
+
+  github-release:
+    name: Publish GitHub Release
+    needs: build-desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: installers-*
+          merge-multiple: true
+
+      - name: List release files
+        run: find release-assets -type f | sort
+
+      - name: Create Release and attach artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            release-assets/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
