@@ -2,6 +2,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Dirent } from 'node:fs';
 import type { RegisteredTool, ToolHandlerResult } from '../../../shared/types.js';
+import { resolveWithinRoot } from '../../security/pathValidation.js';
+import { toErrnoException } from '../../../shared/errorUtils.js';
 
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -53,11 +55,12 @@ export const tool: RegisteredTool = {
       return { success: false, error: 'No project folder is open.' };
     }
 
-    // Security: ensure path doesn't escape project root
-    const absPath = path.resolve(ctx.projectRoot, relativePath);
-    if (!absPath.startsWith(ctx.projectRoot)) {
+    // Security: ensure path doesn't escape project root using centralized validation
+    const resolved = resolveWithinRoot(ctx.projectRoot, relativePath);
+    if (!resolved) {
       return { success: false, error: 'Path must be within the project root.' };
     }
+    const absPath = resolved.absPath;
 
     try {
       const stat = await fs.stat(absPath);
@@ -106,7 +109,7 @@ export const tool: RegisteredTool = {
         },
       };
     } catch (e) {
-      const err = e as NodeJS.ErrnoException;
+      const err = toErrnoException(e);
       if (err.code === 'ENOENT') {
         return { success: false, error: `Directory not found: ${relativePath}` };
       }

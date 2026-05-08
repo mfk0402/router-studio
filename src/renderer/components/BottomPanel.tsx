@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, memo } from 'react';
 import { useApp } from '../store/appStore';
 import { useSettings } from '../store/settingsStore';
 import { PanelResizeHandle } from './PanelResizeHandle';
@@ -6,7 +6,7 @@ import TerminalPane from './TerminalPane';
 import { ProblemsPanel } from './ProblemsPanel';
 import TestRunnerPanel from './TestRunnerPanel';
 
-export default function BottomPanel() {
+function BottomPanel() {
   const logs = useApp((s) => s.logs);
   const clearLogs = useApp((s) => s.clearLogs);
   const models = useApp((s) => s.models);
@@ -41,63 +41,73 @@ export default function BottomPanel() {
     if (currentModel.isFree) return 'free';
     const inP = currentModel.pricingPrompt * 1_000_000;
     const outP = currentModel.pricingCompletion * 1_000_000;
-    return `in $${inP.toFixed(2)}/M · out $${outP.toFixed(2)}/M`;
+    return `IN: $${inP.toFixed(2)}/M · OUT: $${outP.toFixed(2)}/M`;
   }, [currentModel, settings.defaultModel, freeModeEnabled]);
 
+  const modelLine = useMemo(() => {
+    if (freeModeEnabled) return 'Model: Free Mode';
+    const name = currentModel?.name ?? settings.defaultModel;
+    return `Model: ${name} · ${priceHint}`;
+  }, [freeModeEnabled, currentModel?.name, settings.defaultModel, priceHint]);
+
   return (
-    <div className="panel-chrome shrink-0">
-      <div className="flex h-8 items-center justify-between border-b border-border-soft px-2 text-[11px] text-fg-muted">
-        <div className="flex items-center gap-2">
+    <div className="panel-chrome isolate z-0 min-w-0 shrink-0 overflow-hidden border-t border-border-soft/80 shadow-[0_-6px_32px_rgb(0,0,0,0.18)]">
+      <div className="bottom-panel-header min-h-9 w-full min-w-0 gap-x-3 overflow-hidden border-b border-border-soft/70 px-3 py-1.5 text-[11px] text-fg-muted">
+        <div className="flex min-h-8 min-w-0 items-center gap-2 overflow-hidden">
           <button
+            type="button"
             onClick={() => setCollapsed(!collapsed)}
-            className="rounded px-1 text-fg-muted hover:bg-bg-hover hover:text-fg"
+            className="shrink-0 rounded px-1 text-fg-muted hover:bg-bg-hover hover:text-fg"
             title="Toggle panel"
           >
             {collapsed ? '▸' : '▾'}
           </button>
-          <TabButton
-            label="Output"
-            count={logs.length}
-            active={bottomTab === 'output' && !collapsed}
-            onClick={() => {
-              setCollapsed(false);
-              setBottomTab('output');
-            }}
-          />
-          <TabButton
-            label="Terminal"
-            active={bottomTab === 'terminal' && !collapsed}
-            onClick={() => {
-              setCollapsed(false);
-              setBottomTab('terminal');
-            }}
-          />
-          <TabButton
-            label="Problems"
-            active={bottomTab === 'problems' && !collapsed}
-            onClick={() => {
-              setCollapsed(false);
-              setBottomTab('problems');
-            }}
-          />
-          <TabButton
-            label="Tests"
-            active={bottomTab === 'tests' && !collapsed}
-            onClick={() => {
-              setCollapsed(false);
-              setBottomTab('tests');
-            }}
-          />
+          <div className="bottom-panel-tabs-scroll flex min-h-0 min-w-0 flex-1 items-center gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain">
+            <TabButton
+              label="Output"
+              count={logs.length}
+              active={bottomTab === 'output' && !collapsed}
+              onClick={() => {
+                setCollapsed(false);
+                setBottomTab('output');
+              }}
+            />
+            <TabButton
+              label="Terminal"
+              active={bottomTab === 'terminal' && !collapsed}
+              onClick={() => {
+                setCollapsed(false);
+                setBottomTab('terminal');
+              }}
+            />
+            <TabButton
+              label="Problems"
+              active={bottomTab === 'problems' && !collapsed}
+              onClick={() => {
+                setCollapsed(false);
+                setBottomTab('problems');
+              }}
+            />
+            <TabButton
+              label="Tests"
+              active={bottomTab === 'tests' && !collapsed}
+              onClick={() => {
+                setCollapsed(false);
+                setBottomTab('tests');
+              }}
+            />
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="truncate">
-            Model:{' '}
-            {freeModeEnabled ? 'Free Mode' : currentModel?.name ?? settings.defaultModel}
+        <div className="flex min-h-8 min-w-0 items-center justify-end gap-2 overflow-hidden border-l border-border-soft/50 pl-2">
+          <span className="bottom-panel-model-meta min-w-0 truncate text-right tabular-nums leading-tight" title={modelLine}>
+            {modelLine}
           </span>
-          <span>·</span>
-          <span>{priceHint}</span>
           {bottomTab === 'output' && (
-            <button onClick={clearLogs} className="hover:text-fg">
+            <button
+              type="button"
+              onClick={clearLogs}
+              className="shrink-0 whitespace-nowrap hover:text-fg"
+            >
               Clear
             </button>
           )}
@@ -109,9 +119,13 @@ export default function BottomPanel() {
             orientation="row"
             onDrag={(dy) => {
               const cur = useSettings.getState().settings.bottomPanelHeightPx;
-              void useSettings.getState().update({
+              useSettings.getState().patchLocal({
                 bottomPanelHeightPx: Math.min(560, Math.max(120, cur - dy)),
               });
+            }}
+            onDragEnd={() => {
+              const h = useSettings.getState().settings.bottomPanelHeightPx;
+              void useSettings.getState().update({ bottomPanelHeightPx: h });
             }}
           />
           <div
@@ -126,7 +140,7 @@ export default function BottomPanel() {
               }
             >
             {logs.length === 0 ? (
-              <div className="text-fg-subtle">No output yet.</div>
+              <div className="text-sm text-fg-muted">No output yet.</div>
             ) : (
               logs.map((l) => (
                 <div
@@ -181,6 +195,8 @@ export default function BottomPanel() {
   );
 }
 
+export default memo(BottomPanel);
+
 function TabButton({
   label,
   count,
@@ -194,9 +210,10 @@ function TabButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={[
-        'rounded px-2 py-0.5 text-[11px]',
+        'shrink-0 whitespace-nowrap rounded px-2 py-0.5 text-[11px]',
         active ? 'bg-bg text-fg' : 'text-fg-muted hover:bg-bg-hover hover:text-fg',
       ].join(' ')}
     >

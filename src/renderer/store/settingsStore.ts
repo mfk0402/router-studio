@@ -22,12 +22,17 @@ interface SettingsState {
   settings: AppSettings;
   loaded: boolean;
   load: () => Promise<void>;
+  /** Apply to UI only (no IPC). Use while dragging splitters; call `update` once on release to persist. */
+  patchLocal: (partial: Partial<AppSettings>) => void;
   update: (partial: Partial<AppSettings>) => Promise<void>;
 }
 
 export const useSettings = create<SettingsState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   loaded: false,
+  patchLocal: (partial) => {
+    set((state) => ({ settings: { ...state.settings, ...partial } }));
+  },
   load: async () => {
     try {
       const s = await window.api.settings.get();

@@ -40,6 +40,7 @@ export default defineConfig({
     publicDir: resolve(__dirname, 'src/renderer/public'),
     plugins: [react()],
     resolve: {
+      extensions: ['.tsx', '.ts', '.jsx', '.js', '.json'],
       alias: {
         '@': resolve(__dirname, 'src/renderer'),
         '@shared': resolve(__dirname, 'src/shared'),
@@ -50,6 +51,16 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
+        },
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return;
+            if (id.includes('monaco-editor') || id.includes('@monaco-editor')) return 'monaco';
+            if (id.includes('react-dom') || id.includes('/react/')) return 'react-vendor';
+            if (id.includes('zustand')) return 'state';
+            if (id.includes('react-markdown') || id.includes('remark-gfm') || id.includes('/remark/'))
+              return 'markdown';
+          },
         },
       },
     },

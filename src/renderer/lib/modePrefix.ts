@@ -1,12 +1,13 @@
 import type { ProductMode } from '../../shared/types';
 
-const PREFIX_RE = /^(?:@(chat|edit|agent|architect|review|ship))\s+/i;
+const PREFIX_RE = /^(?:@(chat|learn|edit|agent|architect|review|ship))\s+/i;
 
 /** True if `m` is a valid ProductMode token. */
 function asProductMode(raw: string): ProductMode | undefined {
   const x = raw.toLowerCase() as ProductMode;
   if (
     x === 'chat' ||
+    x === 'learn' ||
     x === 'edit' ||
     x === 'agent' ||
     x === 'architect' ||

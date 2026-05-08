@@ -66,6 +66,83 @@ function downloadGeneratedVideo(mediaUrl: string, indexOneBased: number): void {
   })();
 }
 
+function InlineChatVideo({
+  src,
+  downloadIndex,
+  onPlaybackFailed,
+}: {
+  src: string;
+  downloadIndex: number;
+  onPlaybackFailed?: () => void;
+}) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div className="rounded-xl border border-border-soft bg-bg-deep/50 px-3 py-2.5 text-[12px] text-fg-muted">
+        <p className="mb-2 text-fg">
+          This clip could not play inline (codec not supported here, expired link, or the host blocked
+          embedding). Try opening or downloading below.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href={src}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-accent hover:underline"
+          >
+            Open in browser
+          </a>
+          <button
+            type="button"
+            className="rounded-md border border-border-soft px-2 py-0.5 text-[11px] text-fg-muted hover:bg-bg-hover hover:text-fg"
+            onClick={() => downloadGeneratedVideo(src, downloadIndex)}
+          >
+            Download video
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <video
+      src={src}
+      controls
+      playsInline
+      className="max-h-[min(70vh,560px)] w-full max-w-full rounded-xl border border-border-soft shadow-sm"
+      onError={() => {
+        setFailed(true);
+        onPlaybackFailed?.();
+      }}
+    >
+      Video playback is not supported.
+    </video>
+  );
+}
+
+function GeneratedVideoEmbed({ src, idx }: { src: string; idx: number }) {
+  const [playbackFailed, setPlaybackFailed] = useState(false);
+  return (
+    <div className="flex flex-col gap-2">
+      <InlineChatVideo
+        src={src}
+        downloadIndex={idx + 1}
+        onPlaybackFailed={() => setPlaybackFailed(true)}
+      />
+      {!playbackFailed ? (
+        <div>
+          <button
+            type="button"
+            className="rounded-md border border-border-soft px-2.5 py-1 text-[11px] text-fg-muted hover:bg-bg-hover hover:text-fg"
+            onClick={() => downloadGeneratedVideo(src, idx + 1)}
+          >
+            Download video
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function VideoJobProgressPanel({
   progress,
 }: {
@@ -227,6 +304,49 @@ function ChatMessageComponent({ msg, onEdit, onDelete, onFork }: ChatMessageProp
         </div>
       ) : (
         <div className="markdown-body prose-chat">
+          {!isUser && msg.toolCallLive && msg.toolCallLive.length > 0 ? (
+            <ul className="mb-3 list-none space-y-1 rounded-lg border border-border-soft bg-bg-deep/35 px-3 py-2 text-[11px] text-fg-muted">
+              <li className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-fg-muted/90">
+                Tools
+              </li>
+              {msg.toolCallLive.map((row) => (
+                <li
+                  key={row.id}
+                  className="flex flex-col gap-0.5 border-t border-border-soft/70 pt-1.5 first:border-t-0 first:pt-0"
+                >
+                  <div className="flex flex-wrap items-baseline gap-2 font-mono text-[11px] text-fg">
+                    <span
+                      className={
+                        row.status === 'running' ?
+                          'text-accent'
+                        : row.status === 'success' ?
+                          'text-emerald-400/95'
+                        : 'text-danger/95'
+                      }
+                      aria-hidden
+                    >
+                      {row.status === 'running' ?
+                        '●'
+                      : row.status === 'success' ?
+                        '✓'
+                      : '✗'}
+                    </span>
+                    <span className="font-semibold">{row.name}</span>
+                    <span className="min-w-0 flex-1 truncate opacity-85" title={row.argsSnippet}>
+                      {row.argsSnippet}
+                    </span>
+                  </div>
+                  {row.resultSnippet ? (
+                    <pre className="max-h-20 overflow-auto whitespace-pre-wrap break-all rounded-md bg-black/25 px-2 py-1 text-[10px] leading-snug">
+                      {row.resultSnippet}
+                    </pre>
+                  ) : row.status === 'running' ?
+                    <span className="text-[10px] italic opacity-70">Executing…</span>
+                  : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {!isUser && msg.videoRenderProgress && !msg.error ? (
             <VideoJobProgressPanel progress={msg.videoRenderProgress} />
           ) : null}
@@ -237,25 +357,7 @@ function ChatMessageComponent({ msg, onEdit, onDelete, onFork }: ChatMessageProp
                 while — save the file if you need to keep it.
               </p>
               {msg.generatedVideoUrls.map((src, idx) => (
-                <div key={idx} className="flex flex-col gap-2">
-                  <video
-                    src={src}
-                    controls
-                    playsInline
-                    className="max-h-[min(70vh,560px)] w-full max-w-full rounded-xl border border-border-soft shadow-sm"
-                  >
-                    Video playback is not supported.
-                  </video>
-                  <div>
-                    <button
-                      type="button"
-                      className="rounded-md border border-border-soft px-2.5 py-1 text-[11px] text-fg-muted hover:bg-bg-hover hover:text-fg"
-                      onClick={() => downloadGeneratedVideo(src, idx + 1)}
-                    >
-                      Download video
-                    </button>
-                  </div>
-                </div>
+                <GeneratedVideoEmbed key={idx} src={src} idx={idx} />
               ))}
             </div>
           ) : null}

@@ -3,6 +3,8 @@ import path from 'node:path';
 import type { RegisteredTool, ToolHandlerResult } from '../../../shared/types.js';
 import { getSettings } from '../../secureStore.js';
 import { assertWriteAllowed } from '../../writePolicy.js';
+import { resolveWithinRoot } from '../../security/pathValidation.js';
+import { toErrnoException } from '../../../shared/errorUtils.js';
 
 export const tool: RegisteredTool = {
   name: 'delete_file',
@@ -35,15 +37,15 @@ export const tool: RegisteredTool = {
       return { success: false, error: 'Path is required.' };
     }
 
-    const rootResolved = path.resolve(ctx.projectRoot);
-    const rootWithSep = rootResolved.endsWith(path.sep) ? rootResolved : rootResolved + path.sep;
-    const absPath = path.resolve(rootResolved, relativePath);
-    if (absPath !== rootResolved && !absPath.startsWith(rootWithSep)) {
+    // Security: ensure path doesn't escape project root using centralized validation
+    const resolved = resolveWithinRoot(ctx.projectRoot, relativePath);
+    if (!resolved) {
       return { success: false, error: 'Path must be within the project root.' };
     }
+    const absPath = resolved.absPath;
 
     const settings = await getSettings();
-    const policy = assertWriteAllowed(settings, relativePath);
+    const policy = assertWriteAllowed(settings, resolved.relativePath);
     if (!policy.ok) {
       return { success: false, error: policy.error };
     }
@@ -85,7 +87,7 @@ export const tool: RegisteredTool = {
         },
       };
     } catch (e) {
-      const err = e as NodeJS.ErrnoException;
+      const err = toErrnoException(e);
       if (err.code === 'ENOENT') {
         return { success: false, error: `File not found: ${relativePath}` };
       }

@@ -5,7 +5,10 @@
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import type { Dirent } from 'node:fs';
+import { app } from 'electron';
+import { getErrorMessage } from '../shared/errorUtils.js';
 
 export interface CodeChunk {
   id: number;
@@ -33,6 +36,8 @@ export interface IndexMeta {
   projectRoot: string;
   chunkCount: number;
   builtAt: number;
+  /** True when this session last loaded the index from on-disk JSON before optional freshness probe. */
+  loadedFromCache?: boolean;
 }
 
 const SKIP_DIRS = new Set([
@@ -131,6 +136,129 @@ let N = 0;
 let postings = new Map<string, Posting[]>();
 let indexedRoot: string | null = null;
 let builtAt = 0;
+/** Whether the current in-memory index was last satisfied from on-disk JSON (survives until rebuild/invalidate). */
+let currentIndexLoadedFromCache = false;
+
+const PERSIST_SCHEMA = 1 as const;
+
+interface PersistedIndexFile {
+  v: typeof PERSIST_SCHEMA;
+  projectRoot: string;
+  builtAt: number;
+  chunks: CodeChunk[];
+}
+
+function userDataPersistDir(): string | null {
+  try {
+    return path.join(app.getPath('userData'), 'code-index');
+  } catch {
+    return null;
+  }
+}
+
+function persistIndexPath(projectRoot: string): string | null {
+  const dir = userDataPersistDir();
+  if (!dir) return null;
+  const key = path.resolve(projectRoot).toLowerCase();
+  const h = createHash('sha256').update(key).digest('hex').slice(0, 36);
+  return path.join(dir, `${h}.json`);
+}
+
+async function persistIndexToDisk(meta: IndexMeta): Promise<void> {
+  const p = persistIndexPath(meta.projectRoot);
+  const dir = userDataPersistDir();
+  if (!p || !dir) return;
+  const payload: PersistedIndexFile = {
+    v: PERSIST_SCHEMA,
+    projectRoot: meta.projectRoot,
+    builtAt: meta.builtAt,
+    chunks: chunks.map((c, i) => ({ ...c, id: i })),
+  };
+  await fs.mkdir(dir, { recursive: true });
+  const tmp = `${p}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(payload), 'utf8');
+  await fs.rename(tmp, p);
+}
+
+async function deletePersistedForRoot(absRoot: string): Promise<void> {
+  const p = persistIndexPath(absRoot);
+  if (!p) return;
+  try {
+    await fs.unlink(p);
+  } catch {
+    /* missing file is fine */
+  }
+}
+
+/** Sample indexed paths; true if mtimes disagree with index snapshot or files missing. */
+async function isPersistedIndexSampleStale(
+  projectRoot: string,
+  indexBuiltAtMs: number,
+  indexChunks: CodeChunk[],
+): Promise<boolean> {
+  const resolved = path.resolve(projectRoot);
+  const unique = [...new Set(indexChunks.map((c) => c.path))];
+  if (unique.length === 0) return false;
+
+  const maxSamples = 56;
+  const samples: string[] = [];
+  if (unique.length <= maxSamples) {
+    samples.push(...unique);
+  } else {
+    const step = unique.length / maxSamples;
+    for (let i = 0; i < maxSamples; i++) samples.push(unique[Math.floor(i * step)]!);
+  }
+
+  for (const rel of samples) {
+    const abs = path.join(resolved, rel.replace(/\//g, path.sep));
+    try {
+      const st = await fs.stat(abs);
+      if (st.mtimeMs > indexBuiltAtMs + 750) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function tryLoadPersistedIndex(projectRoot: string): Promise<IndexMeta | null> {
+  const resolved = path.resolve(projectRoot);
+  const p = persistIndexPath(resolved);
+  if (!p) return null;
+  let raw: string;
+  try {
+    raw = await fs.readFile(p, 'utf8');
+  } catch {
+    return null;
+  }
+  let data: PersistedIndexFile;
+  try {
+    data = JSON.parse(raw) as PersistedIndexFile;
+  } catch {
+    console.warn('[codeIndex] persisted index JSON invalid; rebuilding');
+    return null;
+  }
+  if (data.v !== PERSIST_SCHEMA || !Array.isArray(data.chunks) || typeof data.projectRoot !== 'string') {
+    return null;
+  }
+  if (path.resolve(data.projectRoot) !== resolved) {
+    return null;
+  }
+  const normalized = data.chunks.map((c, i) => ({
+    ...c,
+    path: typeof c.path === 'string' ? c.path.replace(/\\/g, '/') : '',
+    id: i,
+  }));
+  if (normalized.length === 0) {
+    await deletePersistedForRoot(resolved);
+    return null;
+  }
+  chunks = normalized;
+  buildPostingsFromChunks(chunks);
+  indexedRoot = resolved;
+  builtAt = typeof data.builtAt === 'number' ? data.builtAt : Date.now();
+  return { projectRoot: indexedRoot, chunkCount: chunks.length, builtAt };
+}
 
 function tokenize(text: string): string[] {
   const raw = text.toLowerCase().match(/[a-z0-9_]+/g) ?? [];
@@ -206,6 +334,7 @@ async function walkAndChunk(
   sendProgress?: (m: string) => void,
 ): Promise<CodeChunk[]> {
   const collected: CodeChunk[] = [];
+  let filesIndexed = 0;
 
   async function walk(absDir: string): Promise<void> {
     if (collected.length >= MAX_CHUNKS) return;
@@ -257,6 +386,10 @@ async function walkAndChunk(
       const baseId = collected.length;
       const fileChunks = chunkLines(lines, rel, baseId);
       collected.push(...fileChunks);
+      filesIndexed++;
+      if (filesIndexed % 128 === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
 
       if (collected.length % 500 === 0 && collected.length > 0) {
         sendProgress?.(`code index: ${collected.length} chunks…`);
@@ -304,16 +437,25 @@ export async function buildCodeIndex(
   indexedRoot = path.resolve(projectRoot);
   builtAt = Date.now();
   sendProgress?.(`Code index ready: ${chunks.length} chunks.`);
-  return { projectRoot: indexedRoot, chunkCount: chunks.length, builtAt };
+  const meta = { projectRoot: indexedRoot, chunkCount: chunks.length, builtAt };
+  currentIndexLoadedFromCache = false;
+  persistIndexToDisk(meta).catch((e) => console.warn('[codeIndex] persist failed:', getErrorMessage(e)));
+  return meta;
 }
 
 export function getIndexMeta(): IndexMeta | null {
   if (!indexedRoot || chunks.length === 0) return null;
-  return { projectRoot: indexedRoot, chunkCount: chunks.length, builtAt };
+  return {
+    projectRoot: indexedRoot,
+    chunkCount: chunks.length,
+    builtAt,
+    loadedFromCache: currentIndexLoadedFromCache,
+  };
 }
 
 /** Drop index so the next semantic_search rebuilds (after edits on disk). */
 export function invalidateCodeIndex(): void {
+  const prevRoot = indexedRoot;
   chunks = [];
   docLengths = [];
   postings = new Map();
@@ -321,6 +463,12 @@ export function invalidateCodeIndex(): void {
   avgdl = 0;
   indexedRoot = null;
   builtAt = 0;
+  currentIndexLoadedFromCache = false;
+  if (prevRoot) {
+    deletePersistedForRoot(prevRoot).catch((e) =>
+      console.warn('[codeIndex] delete cache:', getErrorMessage(e)),
+    );
+  }
 }
 
 export function indexMatchesRoot(projectRoot: string): boolean {
@@ -333,8 +481,27 @@ export async function ensureCodeIndex(
   sendProgress?: (m: string) => void,
 ): Promise<IndexMeta> {
   if (indexMatchesRoot(projectRoot)) {
-    return { projectRoot: indexedRoot!, chunkCount: chunks.length, builtAt };
+    return {
+      projectRoot: indexedRoot!,
+      chunkCount: chunks.length,
+      builtAt,
+      loadedFromCache: currentIndexLoadedFromCache,
+    };
   }
+
+  sendProgress?.('Loading code index cache…');
+  const fromDisk = await tryLoadPersistedIndex(projectRoot);
+  if (fromDisk) {
+    sendProgress?.(`Code index restored: ${chunks.length} chunks from cache.`);
+    const stale = await isPersistedIndexSampleStale(projectRoot, fromDisk.builtAt, chunks);
+    if (stale) {
+      sendProgress?.('Cached code index is stale vs disk (sampled mtimes); rebuilding…');
+      return buildCodeIndex(projectRoot, sendProgress);
+    }
+    currentIndexLoadedFromCache = true;
+    return { ...fromDisk, loadedFromCache: true };
+  }
+
   return buildCodeIndex(projectRoot, sendProgress);
 }
 
@@ -364,7 +531,7 @@ export function searchChunks(query: string, limit: number): SearchHit[] {
   scored.sort((a, b) => b.score - a.score);
 
   const out: SearchHit[] = [];
-  const cap = Math.min(Math.max(1, limit), 50);
+  const cap = Math.min(Math.max(1, limit), 96);
   for (const { docId, score } of scored.slice(0, cap)) {
     const ch = chunks[docId];
     if (!ch) continue;

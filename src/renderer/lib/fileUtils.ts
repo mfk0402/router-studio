@@ -16,11 +16,11 @@ import type { FileEntry } from '../../shared/types';
 const EXT_MAP: Record<string, string> = {
   // TS/JS family
   ts: 'typescript',
-  tsx: 'typescript',
+  tsx: 'typescriptreact',
   cts: 'typescript',
   mts: 'typescript',
   js: 'javascript',
-  jsx: 'javascript',
+  jsx: 'javascriptreact',
   cjs: 'javascript',
   mjs: 'javascript',
   // Data / config
@@ -89,7 +89,8 @@ const EXT_MAP: Record<string, string> = {
   sql: 'sql',
   graphql: 'graphql',
   gql: 'graphql',
-  prisma: 'plaintext',
+  /** No Prisma grammar bundled; SQL-like tokenization is closer than plaintext. */
+  prisma: 'sql',
   // Other languages Monaco supports
   lua: 'lua',
   pl: 'perl',
@@ -126,7 +127,8 @@ const EXT_MAP: Record<string, string> = {
   erl: 'plaintext',
   ml: 'plaintext',
   mli: 'plaintext',
-  proto: 'plaintext',
+  /** C-like comments/strings; reasonable for .proto until a dedicated grammar ships. */
+  proto: 'cpp',
   v: 'plaintext',
   vhd: 'plaintext',
   vhdl: 'plaintext',

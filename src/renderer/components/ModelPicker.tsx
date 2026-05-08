@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { useApp } from '../store/appStore';
 import { useSettings } from '../store/settingsStore';
 import {
@@ -17,8 +17,9 @@ import {
   type SortKey,
 } from '../lib/modelFilters';
 import { fetchModels, clearCachedModels } from '../lib/openrouterClient';
-import { getCompletionRouting, canRefreshModelCatalog } from '../lib/completionRouting';
+import { getCompletionRouting, canRefreshModelCatalog, isLocalOpenAiProvider } from '../lib/completionRouting';
 import { ROUTER_STUDIO_AUTO } from '../lib/autoModelRouting';
+import { touchRecentModelIds, providerLabelFromModelId } from '../lib/recentModels';
 import type { ModelCategory, NormalizedModel, PriceTier } from '../../shared/types';
 import logoIcon from '../assets/logo-icon.png';
 
@@ -46,6 +47,7 @@ const SORT_OPTIONS: Array<{ key: SortKey; label: string }> = [
 export default function ModelPicker() {
   const open = useApp((s) => s.showModelPicker);
   const setOpen = useApp((s) => s.setShowModelPicker);
+  const setShowSettings = useApp((s) => s.setShowSettings);
   const models = useApp((s) => s.models);
   const setModels = useApp((s) => s.setModels);
   const modelsLoading = useApp((s) => s.modelsLoading);
@@ -80,6 +82,24 @@ export default function ModelPicker() {
   const premium = useMemo(() => premiumIn(models, category), [models, category]);
   const balanced = useMemo(() => balancedIn(models, category), [models, category]);
 
+  const recentResolved = useMemo(() => {
+    const ids = settings.recentModelIds ?? [];
+    const byId = new Map(models.map((m) => [m.id, m] as const));
+    return ids.map((id) => byId.get(id)).filter((m): m is NormalizedModel => !!m);
+  }, [settings.recentModelIds, models]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, setOpen]);
+
   if (!open) return null;
 
   const refresh = async () => {
@@ -106,7 +126,11 @@ export default function ModelPicker() {
       pushLog('warn', 'Free Mode is enabled. Disable it to select paid models.');
       return;
     }
-    await updateSettings({ defaultModel: m.id, activeModelProfile: 'custom' });
+    await updateSettings({
+      defaultModel: m.id,
+      activeModelProfile: 'custom',
+      recentModelIds: touchRecentModelIds(useSettings.getState().settings.recentModelIds, m.id),
+    });
     pushLog('info', `Default model set to ${m.id} (${formatPricePerM(m.avgPricePerM)})`);
     setOpen(false);
   };
@@ -138,8 +162,18 @@ export default function ModelPicker() {
   };
 
   return (
-    <div className="modal-scrim fixed inset-0 z-[110] flex items-start justify-center p-6">
-      <div className="glass-panel glass-modal-lg flex h-full w-full max-w-6xl flex-col overflow-hidden ds-transition">
+    <div
+      className="modal-scrim fixed inset-0 z-[201000] flex items-start justify-center p-6"
+      role="presentation"
+      onClick={() => setOpen(false)}
+    >
+      <div
+        className="glass-panel glass-modal-lg flex h-full w-full max-w-6xl flex-col overflow-hidden ds-transition"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="model-picker-title"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between border-b border-border-soft px-4 py-3">
           <div className="flex min-w-0 items-start gap-3">
             <span className="brand-mark-icon-wrap mt-0.5">
@@ -151,18 +185,23 @@ export default function ModelPicker() {
               />
             </span>
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-fg">Model Marketplace</div>
+              <div id="model-picker-title" className="text-sm font-semibold text-fg">
+                Model Marketplace
+              </div>
               <div className="text-[11px] text-fg-muted">
                 Pick by category + price. {models.length} models available.
+                <span className="text-fg-subtle"> · Esc to close</span>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={refresh}
-              className="rounded-md border border-border px-2 py-1 text-xs text-fg-muted hover:bg-bg-hover hover:text-fg"
+              disabled={modelsLoading}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-fg-muted hover:bg-bg-hover hover:text-fg disabled:cursor-wait disabled:opacity-70"
             >
-              {modelsLoading ? 'Refreshing…' : 'Refresh Models'}
+              {modelsLoading ? <span className="loading-spinner h-3 w-3" aria-hidden /> : null}
+              <span>{modelsLoading ? 'Refreshing...' : 'Refresh Models'}</span>
             </button>
             <button
               onClick={() => setOpen(false)}
@@ -221,6 +260,30 @@ export default function ModelPicker() {
 
           {/* Right: search + filters + quick-pick + list */}
           <div className="flex min-w-0 flex-1 flex-col">
+            {settings.aiCompletionProvider === 'openrouter' && !settings.apiKey?.trim() ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-soft bg-warn/10 px-4 py-2 text-[11px] text-fg-muted">
+                <span>
+                  <strong className="text-fg">OpenRouter:</strong> you can browse models without a key. Add an API key
+                  in Settings → Models to run chat completions.
+                </span>
+                <button
+                  type="button"
+                  className="shrink-0 rounded border border-border bg-bg px-2 py-1 text-[11px] text-fg hover:bg-bg-hover"
+                  onClick={() => {
+                    setOpen(false);
+                    setShowSettings(true);
+                  }}
+                >
+                  Open Settings
+                </button>
+              </div>
+            ) : null}
+            {isLocalOpenAiProvider(settings) && !canRefreshModelCatalog(settings) ? (
+              <div className="border-b border-border-soft bg-bg-soft px-4 py-2 text-[11px] text-fg-muted">
+                Set a reachable <strong className="text-fg">Local LLM base URL</strong> in Settings → Models, then
+                refresh the catalog.
+              </div>
+            ) : null}
             <div className="space-y-2 border-b border-border-soft px-4 py-3">
               <div className="flex items-center gap-2">
                 <input
@@ -329,6 +392,33 @@ export default function ModelPicker() {
               />
             </div>
 
+            {recentResolved.length > 0 ? (
+              <div className="border-b border-border-soft bg-bg-deep/30 px-4 py-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">Recent</div>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {recentResolved.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      title={m.id}
+                      onClick={() => void pick(m)}
+                      className={
+                        'max-w-[14rem] truncate rounded-full border px-2.5 py-1 text-[11px] transition ' +
+                        (settings.defaultModel === m.id
+                          ? 'border-accent/50 bg-accent/15 text-fg'
+                          : 'border-border text-fg-muted hover:border-border-soft hover:bg-bg-hover hover:text-fg')
+                      }
+                    >
+                      <span className="font-medium text-fg">{m.name}</span>
+                      <span className="ml-1.5 font-mono text-[10px] text-fg-subtle">
+                        {providerLabelFromModelId(m.id)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             {/* Model list */}
             <div className="min-h-0 flex-1 overflow-auto">
               {filteredSorted.length === 0 ? (
@@ -344,6 +434,13 @@ export default function ModelPicker() {
                       model={m}
                       selected={settings.defaultModel === m.id}
                       onPick={() => void pick(m)}
+                      onCopyId={(e) => {
+                        e.stopPropagation();
+                        void navigator.clipboard.writeText(m.id).then(
+                          () => pushLog('info', `Copied model id: ${m.id}`),
+                          () => pushLog('error', 'Clipboard unavailable'),
+                        );
+                      }}
                     />
                   ))}
                 </ul>
@@ -422,10 +519,12 @@ function ModelRow({
   model,
   selected,
   onPick,
+  onCopyId,
 }: {
   model: NormalizedModel;
   selected: boolean;
   onPick: () => void;
+  onCopyId: (e: MouseEvent) => void;
 }) {
   const tierColor =
     model.priceTier === 'free'
@@ -448,6 +547,12 @@ function ModelRow({
         <div className="min-w-0">
           <div className="flex items-center gap-2 truncate">
             <span className="truncate font-medium text-fg">{model.name}</span>
+            <span
+              className="shrink-0 rounded border border-border-soft px-1 py-0 font-mono text-[9px] text-fg-subtle"
+              title={model.id}
+            >
+              {providerLabelFromModelId(model.id)}
+            </span>
             <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${tierColor}`}>
               {priceTierLabel(model.priceTier)}
             </span>
@@ -466,7 +571,14 @@ function ModelRow({
             </div>
           )}
         </div>
-        <div className="shrink-0 text-right text-[11px] text-fg-muted">
+        <div className="flex shrink-0 flex-col items-end gap-1 text-right text-[11px] text-fg-muted">
+          <button
+            type="button"
+            className="rounded border border-border-soft px-2 py-0.5 text-[10px] text-fg-muted hover:bg-bg-hover hover:text-fg"
+            onClick={onCopyId}
+          >
+            Copy id
+          </button>
           <div>ctx {formatContext(model.contextLength)}</div>
           {formatVideoSkuPriceSummary(model.raw) ? (
             <div className="max-w-[12rem]" title="OpenRouter video API SKUs (not per chat token)">
@@ -484,7 +596,7 @@ function ModelRow({
   );
 }
 
-function MiniTag({ children }: { children: React.ReactNode }) {
+function MiniTag({ children }: { children: ReactNode }) {
   return (
     <span className="rounded border border-border px-1 py-0 text-[9px] uppercase tracking-wide text-fg-subtle">
       {children}

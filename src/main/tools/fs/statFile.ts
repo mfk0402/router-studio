@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import type { RegisteredTool, ToolHandlerResult } from '../../../shared/types.js';
+import { resolveWithinRoot } from '../../security/pathValidation.js';
+import { getErrorMessage } from '../../../shared/errorUtils.js';
 
 export const tool: RegisteredTool = {
   name: 'stat_file',
@@ -29,19 +30,18 @@ export const tool: RegisteredTool = {
       return { success: false, error: 'Path is required.' };
     }
 
-    // Security: ensure path doesn't escape project root
-    const absPath = path.resolve(ctx.projectRoot, relativePath);
-    if (!absPath.startsWith(ctx.projectRoot)) {
+    const resolved = resolveWithinRoot(ctx.projectRoot, relativePath);
+    if (!resolved) {
       return { success: false, error: 'Path must be within the project root.' };
     }
 
     try {
-      const stat = await fs.stat(absPath);
+      const stat = await fs.stat(resolved.absPath);
 
       return {
         success: true,
         result: {
-          path: relativePath,
+          path: resolved.relativePath,
           isFile: stat.isFile(),
           isDirectory: stat.isDirectory(),
           isSymlink: stat.isSymbolicLink(),
@@ -55,9 +55,9 @@ export const tool: RegisteredTool = {
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err.code === 'ENOENT') {
-        return { success: false, error: `Path not found: ${relativePath}` };
+        return { success: false, error: `Path not found: ${resolved.relativePath}` };
       }
-      return { success: false, error: `Failed to stat: ${err.message}` };
+      return { success: false, error: `Failed to stat: ${getErrorMessage(e)}` };
     }
   },
 };

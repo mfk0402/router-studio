@@ -64,7 +64,13 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
     title: 'Models & routing',
     summary: 'Pick models, filter pricing, and monitor usage.',
     items: [
-      { id: 'model-picker', title: 'Model marketplace UI + filters', status: 'shipped' },
+      {
+        id: 'model-picker',
+        title: 'Model marketplace UI + filters',
+        status: 'shipped',
+        detail:
+          'Categories, price tiers, sort, Auto routing, quick picks; recent models; provider chip + copy id; Esc / scrim close; OpenRouter key hint; welcome tour + AI empty-state hints.',
+      },
       { id: 'free-mode', title: 'Free Mode + router/cycle strategies', status: 'shipped' },
       { id: 'token-meter', title: 'Live token & cost meter + cache hints', status: 'shipped' },
       {
@@ -161,7 +167,9 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
         id: 'treesitter',
         title: 'Tree-sitter grammars + structural navigation',
         status: 'in_progress',
-        detail: 'treesitter_outline tool uses regex heuristic today; WASM grammars are a planned upgrade.',
+        detail:
+          'treesitter_outline uses the TypeScript compiler AST for TS/JS; regex fallback for other languages. ' +
+          'Optional Tree-sitter WASM grammars (Python, Go, …) remain future work.',
       },
       {
         id: 'split-editor',
@@ -174,7 +182,13 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
         title: 'Theme system (dark / light / system + Monaco + terminal)',
         status: 'shipped',
       },
-      { id: 'vscode-theme-import', title: 'Import VS Code theme JSON (.tmTheme)', status: 'planned' },
+      {
+        id: 'vscode-theme-import',
+        title: 'Import VS Code theme JSON (.tmTheme)',
+        status: 'planned',
+        detail:
+          'Recommended next editor slice after built-in Router Studio themes + semantic highlighting: user-imported token colors for full scope parity.',
+      },
       {
         id: 'snippets',
         title: 'User snippets + AI-generated snippets',
@@ -290,14 +304,15 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
         title: 'Semantic codebase search (BM25 chunk index + tools)',
         status: 'shipped',
         detail:
-          'semantic_search, reindex_codebase, and find_similar tools in the main process — lexical relevance without native embedding deps.',
+          'semantic_search, reindex_codebase, find_similar — BM25 chunk index persisted under userData with sampled mtime freshness check; ' +
+          'optional embedding rerank (OpenRouter or local OpenAI-compatible /v1/embeddings).',
       },
       {
         id: 'product-modes',
-        title: 'Product modes (Chat / Edit / Agent / Architect / Review / Ship)',
+        title: 'Product modes (Chat / Learn / Edit / Agent / Architect / Review / Ship)',
         status: 'shipped',
         detail:
-          'Mode switcher + Ctrl+Shift+1…6, tool gating via productMode, per-mode system prompts, inline @mode prefixes.',
+          'Mode switcher + Ctrl+Shift+1…7, tool gating via productMode, per-mode system prompts, inline @mode prefixes (@learn supported).',
       },
       {
         id: 'pbv-checklist',
@@ -325,7 +340,7 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
         title: 'Shell command risk score 0–5 + approval modal surfacing',
         status: 'shipped',
         detail:
-          'scoreShellCommand in run_shell path; scores ≥4 force approval; safer-alternative copy button.',
+          'scoreShellCommand (shellRisk.ts) in tool approval path; scores ≥4 force approval; safer-alternative copy button.',
       },
       {
         id: 'sensitive-path-guard',
@@ -410,7 +425,8 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
         id: 'mcp-client',
         title: 'Full MCP client + server registry UI',
         status: 'in_progress',
-        detail: 'Settings MCP JSON registry + list_mcp_servers tool; process supervision planned.',
+        detail:
+          'Settings MCP JSON registry; main-process stdio client (initialize, tools/list, tools/call) with mcp_session_* / mcp_tools_* agent tools + mcp_sessions_status.',
       },
       {
         id: 'custom-tools-ts',
@@ -532,7 +548,8 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
         id: 'ci-release-matrix',
         title: 'CI release matrix + signed artifacts per OS',
         status: 'in_progress',
-        detail: 'electron-builder zip + nsis/dmg targets; CI signing pipeline separate.',
+        detail:
+          'GitHub Actions: verify + unit tests on ubuntu/windows/macos; package-desktop job runs electron-builder --dir per OS and uploads release/ (unsigned unless CSC_* / WIN_CSC_* secrets set).',
       },
       { id: 'signing', title: 'Platform signing + notarization matrix', status: 'planned', detail: 'CI secrets & electron-builder profiles.' },
     ],
@@ -548,7 +565,7 @@ export const PRODUCT_ROADMAP: RoadmapPhase[] = [
         title: 'Product identity: command language & Learn mode',
         status: 'in_progress',
         detail:
-          'Phase 11: @file/@route/@free directives shipped (routerCommandLanguage.ts); first-class Learn ProductMode still planned.',
+          'Phase 11: @file/@route/@free + @learn directive shipped; **Learn** ProductMode in switcher (read-only tools, teaching prompt), `@learn` one-shot prefix, Ctrl+Shift+2; deeper @-grammar still planned.',
       },
       {
         id: 'ng-model-router-profiles',

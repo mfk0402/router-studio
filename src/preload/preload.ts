@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AgentFileSyncedPayload,
+  AgentRunEvent,
+  AgentTaskPhase,
+  AgentTaskStatus,
   AgentTask,
   AppSettings,
   AutosaveEntry,
@@ -9,6 +12,8 @@ import type {
   OpenRouterSpeechRequest,
   OpenRouterVideoSubmitRequest,
   ProductMode,
+  ProjectContextRecommendation,
+  ProjectGraphSnapshot,
   Rule,
   ScheduledTaskDuePayload,
   SessionState,
@@ -109,6 +114,33 @@ const api: IpcApi = {
     save: (task: AgentTask) => ipcRenderer.invoke('tasks:save', task),
     delete: (id: string) => ipcRenderer.invoke('tasks:delete', id),
   },
+  agentQueue: {
+    list: () => ipcRenderer.invoke('agentQueue:list'),
+    enqueue: (task: AgentTask) => ipcRenderer.invoke('agentQueue:enqueue', task),
+    startNext: () => ipcRenderer.invoke('agentQueue:startNext'),
+    updateStatus: (id: string, status: AgentTaskStatus, phase?: AgentTaskPhase) =>
+      ipcRenderer.invoke('agentQueue:updateStatus', id, status, phase),
+  },
+  agentEvents: {
+    list: (taskId: string) => ipcRenderer.invoke('agentEvents:list', taskId),
+    append: (event: Omit<AgentRunEvent, 'id' | 'createdAt'> & { id?: string; createdAt?: number }) =>
+      ipcRenderer.invoke('agentEvents:append', event),
+    clear: (taskId: string) => ipcRenderer.invoke('agentEvents:clear', taskId),
+  },
+  projectGraph: {
+    get: () => ipcRenderer.invoke('projectGraph:get'),
+    rebuild: () => ipcRenderer.invoke('projectGraph:rebuild'),
+    recommend: (query: string, limit?: number): Promise<ProjectContextRecommendation[]> =>
+      ipcRenderer.invoke('projectGraph:recommend', query, limit),
+  },
+  modelRouter: {
+    explainRoute: (input: {
+      prompt: string;
+      estimatedPromptTokens: number;
+      hasImageAttachment: boolean;
+      models?: import('../shared/types.js').NormalizedModel[];
+    }) => ipcRenderer.invoke('modelRouter:explainRoute', input),
+  },
   checkpoints: {
     list: () => ipcRenderer.invoke('checkpoints:list'),
     get: (id: string) => ipcRenderer.invoke('checkpoints:get', id),
@@ -181,6 +213,11 @@ const api: IpcApi = {
       ipcRenderer.on('scheduled:due', listener);
       return () => ipcRenderer.removeListener('scheduled:due', listener);
     },
+    onAgentEvent: (cb: (event: AgentRunEvent) => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, event: AgentRunEvent) => cb(event);
+      ipcRenderer.on('agentEvents:changed', listener);
+      return () => ipcRenderer.removeListener('agentEvents:changed', listener);
+    },
     onAgentFileSynced: (cb: (payload: AgentFileSyncedPayload) => void) => {
       const listener = (_e: Electron.IpcRendererEvent, payload: AgentFileSyncedPayload) =>
         cb(payload);
@@ -216,6 +253,27 @@ const api: IpcApi = {
   diagnostics: {
     runAll: () => ipcRenderer.invoke('diagnostics:runAll'),
     runForFile: (filePath: string) => ipcRenderer.invoke('diagnostics:runForFile', filePath),
+  },
+  lsp: {
+    configure: (projectRoot: string | null) => ipcRenderer.invoke('lsp:configure', projectRoot),
+    syncDoc: (payload: {
+      kind: 'open' | 'change' | 'close';
+      relPath: string;
+      languageId: string;
+      text?: string;
+    }) => ipcRenderer.invoke('lsp:syncDoc', payload),
+    hover: (payload: { relPath: string; line: number; character: number }) =>
+      ipcRenderer.invoke('lsp:hover', payload),
+    documentSymbols: (relPath: string) => ipcRenderer.invoke('lsp:documentSymbols', relPath),
+    definition: (payload: { relPath: string; line: number; character: number }) =>
+      ipcRenderer.invoke('lsp:definition', payload),
+    references: (payload: {
+      relPath: string;
+      line: number;
+      character: number;
+      includeDeclaration?: boolean;
+    }) => ipcRenderer.invoke('lsp:references', payload),
+    workspaceSymbols: (query: string) => ipcRenderer.invoke('lsp:workspaceSymbols', query),
   },
   screenshot: {
     captureAllScreens: () => ipcRenderer.invoke('screenshot:captureAllScreens'),

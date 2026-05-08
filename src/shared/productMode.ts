@@ -1,8 +1,9 @@
 import type { ProductMode } from './types.js';
 
-/** Ordered for Ctrl+Shift+1 … Ctrl+Shift+6 shortcuts. */
+/** Ordered for Ctrl+Shift+1 … Ctrl+Shift+7 shortcuts. */
 export const PRODUCT_MODE_SEQUENCE: readonly ProductMode[] = [
   'chat',
+  'learn',
   'edit',
   'agent',
   'architect',
@@ -34,6 +35,9 @@ const MUTATING_OR_HIGH_RISK = new Set<string>([
   'browser_click',
   'browser_type',
   'browser_eval',
+  'mcp_session_start',
+  'mcp_session_stop',
+  'mcp_tools_call',
 ]);
 
 /** Ship mode: release-focused subset (no arbitrary code edits or shell). */
@@ -67,6 +71,9 @@ const SHIP_ALLOW = new Set<string>([
   'memory_get',
   'memory_list',
   'list_mcp_servers',
+  'mcp_sessions_status',
+  'mcp_tools_list',
+  'mcp_server_probe',
   'list_opencode_custom_tools',
   'plugin_registry_status',
   'list_workspace_snapshots',
@@ -91,6 +98,7 @@ export function isAgentProtocolProductMode(mode: ProductMode): boolean {
 export function isToolAllowedInProductMode(mode: ProductMode, toolName: string): boolean {
   switch (mode) {
     case 'chat':
+    case 'learn':
     case 'architect':
     case 'review':
       return !MUTATING_OR_HIGH_RISK.has(toolName);

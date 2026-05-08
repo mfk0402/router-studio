@@ -3,6 +3,8 @@ import path from 'node:path';
 import type { RegisteredTool, ToolHandlerResult } from '../../../shared/types.js';
 import { getSettings } from '../../secureStore.js';
 import { assertWriteAllowed } from '../../writePolicy.js';
+import { resolveWithinRoot } from '../../security/pathValidation.js';
+import { toErrnoException } from '../../../shared/errorUtils.js';
 
 function isProtectedRelativePath(relativePath: string): boolean {
   const patterns = [
@@ -59,24 +61,21 @@ export const tool: RegisteredTool = {
       return { success: false, error: 'Source and destination must differ.' };
     }
 
-    const rootResolved = path.resolve(ctx.projectRoot);
-    const rootWithSep = rootResolved.endsWith(path.sep) ? rootResolved : rootResolved + path.sep;
-    const absFrom = path.resolve(rootResolved, fromRel);
-    const absTo = path.resolve(rootResolved, toRel);
-
-    if (
-      (absFrom !== rootResolved && !absFrom.startsWith(rootWithSep)) ||
-      (absTo !== rootResolved && !absTo.startsWith(rootWithSep))
-    ) {
+    // Security: ensure paths don't escape project root using centralized validation
+    const fromResolved = resolveWithinRoot(ctx.projectRoot, fromRel);
+    const toResolved = resolveWithinRoot(ctx.projectRoot, toRel);
+    if (!fromResolved || !toResolved) {
       return { success: false, error: 'Paths must stay within the project root.' };
     }
+    const absFrom = fromResolved.absPath;
+    const absTo = toResolved.absPath;
 
     const settings = await getSettings();
-    const srcPolicy = assertWriteAllowed(settings, fromRel);
+    const srcPolicy = assertWriteAllowed(settings, fromResolved.relativePath);
     if (!srcPolicy.ok) {
       return { success: false, error: srcPolicy.error };
     }
-    const dstPolicy = assertWriteAllowed(settings, toRel);
+    const dstPolicy = assertWriteAllowed(settings, toResolved.relativePath);
     if (!dstPolicy.ok) {
       return { success: false, error: dstPolicy.error };
     }
@@ -127,7 +126,8 @@ export const tool: RegisteredTool = {
         preview: `Renamed ${fromRel} → ${toRel}`,
       };
     } catch (e) {
-      return { success: false, error: `Failed to rename file: ${(e as Error).message}` };
+      const err = toErrnoException(e);
+      return { success: false, error: `Failed to rename file: ${err.message}` };
     }
   },
 };

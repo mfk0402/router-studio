@@ -1,3 +1,5 @@
+import type { LspDocumentSymbolWire, LspLocationWire, LspWorkspaceSymbolHitWire } from './lspWire.js';
+
 export interface OpenRouterModelRaw {
   id: string;
   name?: string;
@@ -107,6 +109,7 @@ export interface FileEntry {
 /** Product-level AI working mode (header switcher + tool/policy shaping). */
 export type ProductMode =
   | 'chat'
+  | 'learn'
   | 'edit'
   | 'agent'
   | 'architect'
@@ -122,7 +125,7 @@ export interface UserSnippet {
   languages?: string[];
 }
 
-/** Config row for MCP-style servers (registry only; full client is planned). */
+/** Config row for MCP-style servers (stdio JSON-RPC client in main process). */
 export interface McpServerConfig {
   id: string;
   name: string;
@@ -175,6 +178,9 @@ export interface AgentFileSyncedPayload {
   renamedFrom?: string;
 }
 
+/** Persisted `/video` + Generate video modal preference for OpenRouter synthesized audio. */
+export type OpenRouterVideoAudioPreference = 'auto' | 'on' | 'off';
+
 export interface AppSettings {
   apiKey: string;
   /** Last-selected built-in profile (`custom` = manual model fields). */
@@ -203,6 +209,18 @@ export interface AppSettings {
   maxAgentIterations: number;
   /** Max tool call hops in a single turn before forcing a response. */
   maxToolHops: number;
+  /** Automatically start the next queued agent task when the foreground worker is idle. */
+  agentQueueAutoStart: boolean;
+  /** Conservative default: one background worker until the user opts into more parallelism. */
+  maxBackgroundAgents: number;
+  /** Capture a workspace checkpoint before mutating agent tools write to disk. */
+  autoCheckpointBeforeWrites: boolean;
+  /** Optional command used by the cockpit verification lane (empty = infer from project). */
+  agentVerificationCommand: string;
+  /** Soft per-task dollar ceiling shown/enforced before expensive agent runs. 0 = disabled. */
+  agentCostCeilingUsd: number;
+  /** Remember lightweight local model success/failure hints for future routing explanations. */
+  modelQualityMemoryEnabled: boolean;
   /**
    * When true, the first model call in a tool loop uses agentReadModel (or defaultModel);
    * subsequent hops after tool results use agentReasoningModel for synthesis.
@@ -261,6 +279,10 @@ export interface AppSettings {
     ghostTextCooldownMs: number;
     ghostTextMaxPrefixChars: number;
     ghostTextMaxOutputChars: number;
+    /** When non-empty, ghost completions use this model id instead of the default completion model. */
+    ghostTextCompletionModel: string;
+    /** typescript-language-server over stdio — hover + merged Problems diagnostics when a workspace is open. */
+    typescriptLanguageServer: boolean;
   };
   /** User-configurable custom action buttons */
   customActions: Array<{
@@ -272,6 +294,13 @@ export interface AppSettings {
   }>;
   /** First-run product tour (dismissible) */
   hasCompletedProductTour: boolean;
+  /**
+   * Recently picked models in the Model Marketplace (newest first, max 12).
+   * Used for quick recall; auto-router and openrouter/auto ids are never stored.
+   */
+  recentModelIds: string[];
+  /** User dismissed the “Quick start” strip above an empty AI chat. */
+  dismissedAiOnboardingHint: boolean;
   /** User-defined editor snippets (prefix → completion body). */
   userSnippets: UserSnippet[];
   /**
@@ -317,6 +346,14 @@ export interface AppSettings {
   /** Hard cap on completion tokens since app start (in-memory). 0 = disabled. */
   sessionCompletionTokenBudget: number;
 
+  /**
+   * When true, lexical semantic_search merges top BM25 hits with embedding similarity reranking
+   * (OpenRouter when that provider is selected, or local `/v1/embeddings` when Local LLM is selected).
+   */
+  semanticSearchEmbedRerank: boolean;
+  /** Embedding model id for semantic_search rerank (OpenRouter id, or local model name e.g. `nomic-embed-text` for Ollama). */
+  embeddingOpenRouterModel: string;
+
   /** OpenRouter `/v1/tts` model id (e.g. openai/tts-1). Empty: `/tts` asks you to set this in Settings. */
   openRouterTtsModel: string;
   /** Voice name required by the TTS model (often `alloy`, `verse`, … — provider-specific). */
@@ -333,7 +370,12 @@ export interface AppSettings {
   openRouterVideoAspectRatio: string;
   /** Optional `resolution` passthrough; empty = let the API use its default. */
   openRouterVideoResolution: string;
-}
+  /**
+   * OpenRouter video `generate_audio`: `auto` omits the field (provider default — many Veo tiers add synced audio unless disabled).
+   * `off` sends `generate_audio: false`; `on` sends `true`.
+   */
+  openRouterVideoAudio: OpenRouterVideoAudioPreference;
+};
 
 export const DEFAULT_SETTINGS: AppSettings = {
   apiKey: '',
@@ -355,6 +397,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   productMode: 'chat',
   maxAgentIterations: 15,
   maxToolHops: 40,
+  agentQueueAutoStart: false,
+  maxBackgroundAgents: 1,
+  autoCheckpointBeforeWrites: true,
+  agentVerificationCommand: '',
+  agentCostCeilingUsd: 0,
+  modelQualityMemoryEnabled: true,
   smartAgentRouting: false,
   agentReadModel: '',
   agentReasoningModel: '',
@@ -386,9 +434,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
     ghostTextCooldownMs: 1200,
     ghostTextMaxPrefixChars: 6000,
     ghostTextMaxOutputChars: 256,
+    ghostTextCompletionModel: '',
+    typescriptLanguageServer: true,
   },
   customActions: [],
   hasCompletedProductTour: false,
+  recentModelIds: [],
+  dismissedAiOnboardingHint: false,
   userSnippets: [],
   autoUpdateEnabled: true,
   zenMode: false,
@@ -410,12 +462,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dailyCompletionTokenBudget: 0,
   sessionCompletionTokenBudget: 0,
 
+  semanticSearchEmbedRerank: false,
+  embeddingOpenRouterModel: 'openai/text-embedding-3-small',
+
   openRouterTtsModel: '',
   openRouterTtsVoice: 'alloy',
   openRouterTtsFormat: 'mp3',
   openRouterVideoModel: '',
   openRouterVideoAspectRatio: '',
   openRouterVideoResolution: '',
+  openRouterVideoAudio: 'auto',
 };
 
 // ================== TOOL CALLING TYPES ==================
@@ -636,6 +692,12 @@ export interface ChatCompletionRequest {
   image_config?: Record<string, unknown>;
 }
 
+export interface ModelLatencyAggregate {
+  samples: number;
+  avgMs: number;
+  failures: number;
+}
+
 export interface CompletionUsageSnapshot {
   prompt_tokens?: number;
   completion_tokens?: number;
@@ -657,6 +719,16 @@ export interface LocalUsageStats {
   promptTokens: number;
   completionTokens: number;
   cachedPromptTokens: number;
+  /** Rolling average latency per completion model id (milliseconds). Added in vNext; persisted when Stats records timing. */
+  modelLatencyByModel?: Record<string, ModelLatencyAggregate>;
+}
+
+/** TypeScript/JavaScript LSP IPC status (renderer ↔ main typescript-language-server bridge). */
+export interface LspBridgeStatus {
+  connected: boolean;
+  workspace: string | null;
+  servers: string[];
+  message: string;
 }
 
 export interface StreamChunk {
@@ -693,11 +765,21 @@ export interface TerminalEvent {
 }
 
 export type AgentTaskStatus =
+  | 'queued'
   | 'running'
   | 'blocked'
   | 'completed'
   | 'failed'
   | 'paused';
+
+export type AgentTaskPhase =
+  | 'queued'
+  | 'discover'
+  | 'plan'
+  | 'implement'
+  | 'verify'
+  | 'report'
+  | 'done';
 
 /** Persistent, resumable "agent task" — a long-running chat with a goal. */
 /** Plan → Build → Verify step persisted on an agent task. */
@@ -739,6 +821,88 @@ export interface WorkspaceCheckpointPayload {
   files: Array<{ path: string; content: string }>;
 }
 
+export interface AgentVerificationSummary {
+  command?: string;
+  status: 'not_run' | 'running' | 'passed' | 'failed' | 'skipped';
+  exitCode?: number | null;
+  summary?: string;
+  updatedAt: number;
+}
+
+export interface AgentTaskReport {
+  summary: string;
+  changedFiles: string[];
+  verification: string[];
+  risks: string[];
+  nextSteps: string[];
+  generatedAt: number;
+}
+
+export type AgentRunEventType =
+  | 'queue'
+  | 'phase'
+  | 'model'
+  | 'tool'
+  | 'approval'
+  | 'checkpoint'
+  | 'verification'
+  | 'trust'
+  | 'status'
+  | 'report';
+
+export type AgentRunEventStatus = 'pending' | 'running' | 'success' | 'error' | 'denied' | 'info';
+
+export interface AgentRunEvent {
+  id: string;
+  taskId: string;
+  type: AgentRunEventType;
+  status: AgentRunEventStatus;
+  title: string;
+  detail?: string;
+  toolCallId?: string;
+  checkpointId?: string;
+  createdAt: number;
+}
+
+export interface ProjectGraphFileNode {
+  path: string;
+  language: string;
+  imports: string[];
+  exports: string[];
+  symbols: string[];
+  routes: string[];
+  sizeBytes: number;
+}
+
+export interface ProjectGraphSnapshot {
+  id: string;
+  projectRoot: string;
+  builtAt: number;
+  files: ProjectGraphFileNode[];
+  symbols: Array<{ name: string; kind: string; file: string; line?: number }>;
+  imports: Array<{ from: string; to: string; specifier: string }>;
+  exports: Array<{ file: string; name: string }>;
+  routes: Array<{ route: string; file: string }>;
+  packageScripts: Record<string, string>;
+  testCommands: string[];
+}
+
+export interface ProjectContextRecommendation {
+  path: string;
+  score: number;
+  reason: string;
+}
+
+export interface ModelRouteExplanation {
+  taskType: ModelCategory;
+  primaryModel: string;
+  readModel: string;
+  reasoningModel: string;
+  estimatedCostUsd: number | null;
+  budgetOk: boolean;
+  reasons: string[];
+}
+
 export interface AgentTask {
   id: string;
   /** When this task was started by spawn_agent, the parent task id. */
@@ -746,6 +910,8 @@ export interface AgentTask {
   title: string;
   goal: string;
   status: AgentTaskStatus;
+  phase?: AgentTaskPhase;
+  priority?: 'low' | 'normal' | 'high';
   iterations: number;
   maxIterations: number;
   modelUsed: string;
@@ -756,11 +922,19 @@ export interface AgentTask {
   lastMarker: string | null;
   /** Detailed error if status is 'failed'. */
   lastError: string | null;
+  checkpointIds?: string[];
+  costEstimateUsd?: number;
+  actualCostUsd?: number;
+  verification?: AgentVerificationSummary;
+  report?: AgentTaskReport;
   /** Plan → Build → Verify checklist (optional). */
   plan?: TaskPlanStep[];
   /** Multi-file composer snapshot for resume. */
   composer?: ComposerSessionState;
   /** Timestamps. */
+  queuedAt?: number | null;
+  startedAt?: number | null;
+  completedAt?: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -951,6 +1125,35 @@ export interface IpcApi {
     save: (task: AgentTask) => Promise<AgentTask>;
     delete: (id: string) => Promise<void>;
   };
+  agentQueue: {
+    list: () => Promise<AgentTask[]>;
+    enqueue: (task: AgentTask) => Promise<AgentTask>;
+    startNext: () => Promise<AgentTask | null>;
+    updateStatus: (
+      id: string,
+      status: AgentTaskStatus,
+      phase?: AgentTaskPhase,
+    ) => Promise<AgentTask | null>;
+  };
+  agentEvents: {
+    list: (taskId: string) => Promise<AgentRunEvent[]>;
+    append: (event: Omit<AgentRunEvent, 'id' | 'createdAt'> & { id?: string; createdAt?: number }) =>
+      Promise<AgentRunEvent>;
+    clear: (taskId: string) => Promise<void>;
+  };
+  projectGraph: {
+    get: () => Promise<ProjectGraphSnapshot | null>;
+    rebuild: () => Promise<ProjectGraphSnapshot | null>;
+    recommend: (query: string, limit?: number) => Promise<ProjectContextRecommendation[]>;
+  };
+  modelRouter: {
+    explainRoute: (input: {
+      prompt: string;
+      estimatedPromptTokens: number;
+      hasImageAttachment: boolean;
+      models?: NormalizedModel[];
+    }) => Promise<ModelRouteExplanation>;
+  };
   checkpoints: {
     list: () => Promise<WorkspaceCheckpointSummary[]>;
     get: (id: string) => Promise<WorkspaceCheckpointPayload | null>;
@@ -987,6 +1190,7 @@ export interface IpcApi {
     onUpdates: (cb: (evt: UpdateEvent) => void) => () => void;
     onWebhook: (cb: (payload: WebhookIncomingPayload) => void) => () => void;
     onScheduledDue: (cb: (payload: ScheduledTaskDuePayload) => void) => () => void;
+    onAgentEvent: (cb: (event: AgentRunEvent) => void) => () => void;
     onAgentFileSynced: (cb: (payload: AgentFileSyncedPayload) => void) => () => void;
     /** Main-process watcher: project files changed on disk (debounced). */
     onProjectFsChanged: (cb: () => void) => () => void;
@@ -1013,6 +1217,30 @@ export interface IpcApi {
   diagnostics: {
     runAll: () => Promise<import('./diagnostics.js').DiagnosticsByFile>;
     runForFile: (filePath: string) => Promise<import('./diagnostics.js').Diagnostic[]>;
+  };
+  /** Optional TS/JS LSP bridge — configure when project/settings change; Monaco syncs docs + hover. */
+  lsp: {
+    configure: (projectRoot: string | null) => Promise<LspBridgeStatus>;
+    syncDoc: (payload: {
+      kind: 'open' | 'change' | 'close';
+      relPath: string;
+      languageId: string;
+      text?: string;
+    }) => Promise<{ ok: boolean }>;
+    hover: (payload: { relPath: string; line: number; character: number }) => Promise<unknown | null>;
+    documentSymbols: (relPath: string) => Promise<LspDocumentSymbolWire[] | null>;
+    definition: (payload: {
+      relPath: string;
+      line: number;
+      character: number;
+    }) => Promise<LspLocationWire[] | null>;
+    references: (payload: {
+      relPath: string;
+      line: number;
+      character: number;
+      includeDeclaration?: boolean;
+    }) => Promise<LspLocationWire[] | null>;
+    workspaceSymbols: (query: string) => Promise<LspWorkspaceSymbolHitWire[]>;
   };
   screenshot: {
     captureAllScreens: () => Promise<Array<{

@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Dirent } from 'node:fs';
 import type { RegisteredTool, ToolHandlerResult } from '../../../shared/types.js';
+import { isLspTsJsReady, lspWorkspaceSymbolSearch } from '../../lspHost.js';
 
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -140,6 +141,7 @@ export const tool: RegisteredTool = {
   name: 'search_symbols',
   description:
     'Search for symbol definitions (functions, classes, interfaces, types, etc.) in the codebase. ' +
+    'When the TypeScript/JavaScript language server is connected, workspace symbol results are merged with a fast regex scan. ' +
     'Faster than grep for finding where something is defined.',
   category: 'search',
   riskLevel: 'low',
@@ -175,13 +177,14 @@ export const tool: RegisteredTool = {
     }
 
     const globRegex = fileGlob ? globToRegex(fileGlob) : null;
-    const matches: Array<{
+    type MatchRow = {
       file: string;
       line: number;
       symbol: string;
       kind: string;
       preview: string;
-    }> = [];
+    };
+    const matches: MatchRow[] = [];
 
     async function walk(dir: string): Promise<void> {
       if (matches.length >= maxResults) return;
@@ -245,13 +248,52 @@ export const tool: RegisteredTool = {
 
     await walk(ctx.projectRoot);
 
+    const dedupeKey = (m: MatchRow): string =>
+      `${m.file.replace(/\\/g, '/').toLowerCase()}:${m.line}:${m.symbol.toLowerCase()}`;
+    const combined: MatchRow[] = [];
+    const seen = new Set<string>();
+
+    const pushUnique = (m: MatchRow): boolean => {
+      const k = dedupeKey(m);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      combined.push(m);
+      return combined.length >= maxResults;
+    };
+
+    if (isLspTsJsReady()) {
+      try {
+        for (const hit of await lspWorkspaceSymbolSearch(query)) {
+          if (!hit.name.toLowerCase().includes(query)) continue;
+          const rel = hit.file.replace(/\\/g, '/');
+          if (globRegex && !globRegex.test(rel) && !globRegex.test(path.basename(rel))) continue;
+          if (
+            pushUnique({
+              file: rel,
+              line: hit.line,
+              symbol: hit.name,
+              kind: hit.kind,
+              preview: hit.preview.slice(0, 100),
+            })
+          )
+            break;
+        }
+      } catch {
+        /* ignore LSP failures; regex results still valuable */
+      }
+    }
+
+    for (const m of matches) {
+      if (pushUnique(m)) break;
+    }
+
     return {
       success: true,
       result: {
         query,
-        symbols: matches,
-        count: matches.length,
-        truncated: matches.length >= maxResults,
+        symbols: combined,
+        count: combined.length,
+        truncated: combined.length >= maxResults,
       },
     };
   },

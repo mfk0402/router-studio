@@ -54,11 +54,12 @@
     "build:linux": "electron-vite build && electron-builder --linux",
     "assets:transparent-logos": "node scripts/make-logo-transparent.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test:unit": "node --experimental-strip-types --test src/main/security/pathValidation.test.ts src/main/security/promptInjectionGuard.test.ts src/main/security/sensitiveFileGuard.test.ts src/main/tools/shell/runShell.test.ts src/renderer/lib/agentLoop.test.ts src/renderer/lib/fileUtils.test.ts src/renderer/lib/toolPromptGuide.test.ts",
+    "test": "npm run test:unit && npm run verify",
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
     "verify-server": "node server/email-verify/server.mjs",
     "postinstall": "node scripts/ensure-native-toolchain.mjs",
-    "test": "npm run verify",
     "pack:check": "npm pack --dry-run"
   },
   "dependencies": {
@@ -74,6 +75,9 @@
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0",
+    "vscode-jsonrpc": "^8.2.1",
+    "vscode-languageserver-protocol": "^3.17.5",
+    "typescript": "^5.5.3",
     "zustand": "^4.5.4"
   },
   "devDependencies": {
@@ -90,7 +94,6 @@
     "pngjs": "^7.0.0",
     "postcss": "^8.4.39",
     "tailwindcss": "^3.4.6",
-    "typescript": "^5.5.3",
     "vite": "^5.3.4"
   },
   "build": {

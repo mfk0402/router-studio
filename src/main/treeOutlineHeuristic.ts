@@ -4,7 +4,15 @@
  */
 export interface OutlineEntry {
   name: string;
-  kind: 'function' | 'class' | 'method' | 'variable' | 'interface' | 'other';
+  kind:
+    | 'function'
+    | 'class'
+    | 'method'
+    | 'variable'
+    | 'interface'
+    | 'enum'
+    | 'type'
+    | 'other';
   line: number;
 }
 

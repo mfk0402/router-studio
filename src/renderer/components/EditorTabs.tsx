@@ -39,10 +39,10 @@ const TabStripItem = memo(function TabStripItem({
       onDragEnd={() => setDragFrom(null)}
       onClick={() => setActiveTab(tab.relativePath)}
       className={[
-        'group flex h-full cursor-pointer items-center gap-2 border-b-2 border-r border-border-soft px-3 text-xs transition-colors duration-layout',
+        'group flex h-full cursor-pointer items-center gap-2 border-t-2 border-r border-b border-b-border-soft border-border-soft px-3 text-xs transition-colors duration-layout',
         active
-          ? 'border-b-accent-electric bg-accent/12 text-fg'
-          : 'border-b-transparent text-fg-muted hover:bg-bg-hover',
+          ? 'border-t-accent bg-accent/[0.09] text-fg'
+          : 'border-t-transparent text-fg-muted hover:bg-bg-hover',
       ].join(' ')}
       title={tab.relativePath}
     >
@@ -68,7 +68,7 @@ const TabStripItem = memo(function TabStripItem({
   );
 });
 
-export default function EditorTabs() {
+function EditorTabs() {
   const tabs = useApp((s) => s.tabs);
   const activeTabPath = useApp((s) => s.activeTabPath);
   const setActiveTab = useApp((s) => s.setActiveTab);
@@ -89,10 +89,16 @@ export default function EditorTabs() {
     [closeTab, pushLog],
   );
 
-  if (tabs.length === 0) return null;
+  if (tabs.length === 0) {
+    return (
+      <div className="flex h-full min-h-9 w-full min-w-0 items-center overflow-x-auto bg-transparent px-2 text-[11px] text-fg-subtle/80">
+        <span className="truncate italic">Open a file — tabs appear here</span>
+      </div>
+    );
+  }
 
   return (
-    <div className="chrome-tabstrip flex h-9 shrink-0 items-center overflow-x-auto ds-transition">
+    <div className="flex h-full min-h-9 min-w-0 flex-1 items-center overflow-x-auto bg-transparent ds-transition">
       {tabs.map((t, index) => (
         <TabStripItem
           key={t.relativePath}
@@ -109,3 +115,5 @@ export default function EditorTabs() {
     </div>
   );
 }
+
+export default memo(EditorTabs);

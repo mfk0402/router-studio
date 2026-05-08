@@ -81,7 +81,11 @@ const builtInCommands: SlashCommand[] = [
           usageHint: [
             '**`/video`** needs a scene description on the same line.',
             '',
-            'Example: `/video slow drone shot over the ocean at sunset`',
+            '**Tip:** Attach a **screenshot image** in the composer before sending `/video` — it becomes **first-frame** (and optionally last-frame) conditioning for OpenRouter.',
+            '',
+            '**Silent cuts:** Settings → Models → Video generation → **Generated audio → Silent** sets `generate_audio=false` on `/video` jobs.',
+            '',
+            'Example: `/video slow dolly zoom on the editor while tooltips fade in`',
             '',
             'Requires an OpenRouter API key in Settings. Use **Generate video** in the AI header or **`/video`**. Configure defaults in **Settings → Models → Video generation**.',
           ].join('\n'),

@@ -6,7 +6,20 @@ import type { RegisteredTool, ToolContext, ToolHandlerResult } from '../../../sh
 import { getSettings, setSettings } from '../../secureStore.js';
 import * as tasksApi from '../../tasks.js';
 import { outlineHeuristic } from '../../treeOutlineHeuristic.js';
-import { checkpointsUserDataDir } from '../../checkpointsApi.js';
+import {
+  tryTypeScriptFamilyOutline,
+  isTypeScriptFamilyExt,
+} from '../../typescriptOutline.js';
+import { checkpointsUserDataDir, listCheckpointSummaries } from '../../checkpointsApi.js';
+import { getLspBridgeStatus } from '../../lspHost.js';
+import {
+  ensureMcpSession,
+  stopSession,
+  listMcpSessionStatus,
+  listMcpTools,
+  callMcpTool,
+} from '../../mcpHost.js';
+import { probeMcpServerRow } from '../../mcpProbe.js';
 
 function checkpointsDir(): string {
   return checkpointsUserDataDir();
@@ -243,13 +256,124 @@ export const linearListIssuesTool: RegisteredTool = {
 export const listMcpServersTool: RegisteredTool = {
   name: 'list_mcp_servers',
   description:
-    'Return MCP-style server rows from Settings (registry only; processes are not spawned automatically).',
+    'Return MCP-style server rows from Settings. ' +
+    'Use mcp_session_start to spawn a persistent stdio session, then mcp_tools_list / mcp_tools_call.',
   category: 'integration',
   riskLevel: 'low',
   schema: { type: 'object', properties: {} },
   handler: async (): Promise<ToolHandlerResult> => {
     const s = await getSettings();
     return { success: true, result: { servers: s.mcpServers ?? [] } };
+  },
+};
+
+export const mcpSessionsStatusTool: RegisteredTool = {
+  name: 'mcp_sessions_status',
+  description:
+    'List active MCP stdio sessions managed by Router Studio (pid, initialized, recent stderr tail).',
+  category: 'integration',
+  riskLevel: 'low',
+  schema: { type: 'object', properties: {} },
+  handler: async (): Promise<ToolHandlerResult> => {
+    return { success: true, result: { sessions: listMcpSessionStatus() } };
+  },
+};
+
+export const mcpSessionStartTool: RegisteredTool = {
+  name: 'mcp_session_start',
+  description:
+    'Start (or reuse) a long-lived MCP server process for a Settings registry row: JSON-RPC initialize over stdio, then keep the session for tools/list and tools/call.',
+  category: 'integration',
+  riskLevel: 'medium',
+  schema: {
+    type: 'object',
+    properties: {
+      server_id: { type: 'string', description: 'McpServerConfig.id from Settings MCP registry.' },
+      force: {
+        type: 'boolean',
+        description: 'If true, tear down an existing session and spawn again.',
+      },
+    },
+    required: ['server_id'],
+  },
+  handler: async (args): Promise<ToolHandlerResult> => {
+    const r = await ensureMcpSession(String(args.server_id ?? ''), {
+      force: Boolean(args.force),
+    });
+    if (!r.ok) return { success: false, error: r.error };
+    return { success: true, result: { server_id: args.server_id, ready: true } };
+  },
+};
+
+export const mcpSessionStopTool: RegisteredTool = {
+  name: 'mcp_session_stop',
+  description: 'Stop the managed MCP stdio session for a Settings server id (SIGTERM the child).',
+  category: 'integration',
+  riskLevel: 'medium',
+  schema: {
+    type: 'object',
+    properties: {
+      server_id: { type: 'string', description: 'McpServerConfig.id from Settings MCP registry.' },
+    },
+    required: ['server_id'],
+  },
+  handler: async (args): Promise<ToolHandlerResult> => {
+    const sid = String(args.server_id ?? '').trim();
+    if (!sid) return { success: false, error: 'server_id is required.' };
+    stopSession(sid);
+    return { success: true, result: { server_id: sid, stopped: true } };
+  },
+};
+
+export const mcpToolsListTool: RegisteredTool = {
+  name: 'mcp_tools_list',
+  description:
+    'Call MCP tools/list on an active session (starts the session if needed). Returns tool names and schemas from the server.',
+  category: 'integration',
+  riskLevel: 'low',
+  schema: {
+    type: 'object',
+    properties: {
+      server_id: { type: 'string', description: 'McpServerConfig.id from Settings MCP registry.' },
+    },
+    required: ['server_id'],
+  },
+  handler: async (args): Promise<ToolHandlerResult> => {
+    const r = await listMcpTools(String(args.server_id ?? ''));
+    if (!r.ok) return { success: false, error: r.error };
+    return { success: true, result: { server_id: args.server_id, tools: r.tools } };
+  },
+};
+
+export const mcpToolsCallTool: RegisteredTool = {
+  name: 'mcp_tools_call',
+  description:
+    'Call MCP tools/call on an active session (starts the session if needed). ' +
+    'May execute arbitrary provider-side logic — requires explicit user approval in the UI.',
+  category: 'integration',
+  riskLevel: 'high',
+  schema: {
+    type: 'object',
+    properties: {
+      server_id: { type: 'string', description: 'McpServerConfig.id from Settings MCP registry.' },
+      tool_name: { type: 'string', description: 'Name from mcp_tools_list.' },
+      arguments: {
+        type: 'object',
+        description: 'JSON object passed as tool arguments (server-specific).',
+      },
+    },
+    required: ['server_id', 'tool_name'],
+  },
+  handler: async (args): Promise<ToolHandlerResult> => {
+    const r = await callMcpTool(
+      String(args.server_id ?? ''),
+      String(args.tool_name ?? ''),
+      args.arguments != null && typeof args.arguments === 'object'
+        ? (args.arguments as Record<string, unknown>)
+        : undefined,
+    );
+    if (!r.ok) return { success: false, error: r.error };
+    return { success: true, result: r.result };
   },
 };
 
@@ -370,18 +494,23 @@ export const workspaceSnapshotSaveTool: RegisteredTool = {
 
 export const listWorkspaceSnapshotsTool: RegisteredTool = {
   name: 'list_workspace_snapshots',
-  description: 'List checkpoint ids saved by workspace_snapshot_save.',
+  description:
+    'List workspace checkpoints (ids + labels + metadata) saved by workspace_snapshot_save — same data as the Tasks → Checkpoints UI.',
   category: 'integration',
   riskLevel: 'low',
   schema: { type: 'object', properties: {} },
   handler: async (): Promise<ToolHandlerResult> => {
-    const dir = checkpointsDir();
     try {
-      const names = await fs.readdir(dir);
-      const ids = names.filter((n) => n.endsWith('.json')).map((n) => n.replace(/\.json$/, ''));
-      return { success: true, result: { checkpointIds: ids } };
+      const checkpoints = await listCheckpointSummaries();
+      return {
+        success: true,
+        result: {
+          checkpointIds: checkpoints.map((c) => c.id),
+          checkpoints,
+        },
+      };
     } catch {
-      return { success: true, result: { checkpointIds: [] as string[] } };
+      return { success: true, result: { checkpointIds: [] as string[], checkpoints: [] } };
     }
   },
 };
@@ -389,8 +518,8 @@ export const listWorkspaceSnapshotsTool: RegisteredTool = {
 export const treesitterOutlineTool: RegisteredTool = {
   name: 'treesitter_outline',
   description:
-    'Heuristic structural outline for a source file (regex-based). ' +
-    'Full Tree-sitter WASM parsing may replace internals later.',
+    'Structural outline for source files: TypeScript/JavaScript (.ts/.tsx/.js/.jsx/…) use the TS compiler AST; ' +
+    'other languages use a regex heuristic. (Tree-sitter WASM remains an optional upgrade for extra grammars.)',
   category: 'integration',
   riskLevel: 'low',
   schema: {
@@ -417,10 +546,24 @@ export const treesitterOutlineTool: RegisteredTool = {
     }
     try {
       const source = await fs.readFile(abs, 'utf8');
-      const symbols = outlineHeuristic(source, lang);
+      const ext = path.extname(rel).replace(/^\./, '');
+      const langLower = lang.toLowerCase();
+      const langImpliesTsFam =
+        /^(typescript|javascript|typescriptreact|javascriptreact|ts|tsx|js|jsx)$/.test(langLower);
+
+      let symbols = outlineHeuristic(source, lang);
+      let engine: 'typescript-ast' | 'regex-heuristic' = 'regex-heuristic';
+      if (isTypeScriptFamilyExt(ext) || langImpliesTsFam) {
+        const ast = tryTypeScriptFamilyOutline(source, path.basename(rel));
+        if (ast && ast.length > 0) {
+          symbols = ast;
+          engine = 'typescript-ast';
+        }
+      }
+
       return {
         success: true,
-        result: { path: rel, language_id: lang || 'unknown', symbols, engine: 'regex-heuristic' },
+        result: { path: rel, language_id: lang || 'unknown', symbols, engine },
       };
     } catch (e) {
       return { success: false, error: (e as Error).message };
@@ -430,19 +573,55 @@ export const treesitterOutlineTool: RegisteredTool = {
 
 export const lspWorkspaceStatusTool: RegisteredTool = {
   name: 'lsp_workspace_status',
-  description: 'Return LSP bridge status (monaco-languageclient not wired in this build).',
+  description: 'Return TypeScript/JavaScript LSP bridge status (typescript-language-server stdio session).',
   category: 'debug',
   riskLevel: 'low',
   schema: { type: 'object', properties: {} },
   handler: async (): Promise<ToolHandlerResult> => {
     return {
       success: true,
+      result: getLspBridgeStatus(),
+    };
+  },
+};
+
+export const mcpServerProbeTool: RegisteredTool = {
+  name: 'mcp_server_probe',
+  description:
+    'Spawn a short-lived process for an MCP server row from Settings (by id) and capture early output / exit code. ' +
+    'Most MCP servers stay running; timeouts are expected — use this only to verify the binary starts.',
+  category: 'integration',
+  riskLevel: 'medium',
+  schema: {
+    type: 'object',
+    properties: {
+      server_id: { type: 'string', description: 'McpServerConfig.id from Settings MCP registry.' },
+      timeout_ms: { type: 'integer', description: 'Milliseconds before SIGTERM (default 5000, max 15000).' },
+    },
+    required: ['server_id'],
+  },
+  handler: async (args): Promise<ToolHandlerResult> => {
+    const sid = String(args.server_id ?? '');
+    const tm = Math.min(15_000, Math.max(1000, Number(args.timeout_ms) || 5000));
+    if (!sid) return { success: false, error: 'server_id is required.' };
+    const s = await getSettings();
+    const row = (s.mcpServers ?? []).find((m) => m.id === sid);
+    if (!row) {
+      return { success: false, error: `No MCP row with id "${sid}".` };
+    }
+    const r = await probeMcpServerRow(row, tm);
+    return {
+      success: r.ok,
       result: {
-        connected: false,
-        servers: [] as string[],
-        message:
-          'Native LSP via monaco-languageclient is planned. Use Problems panel and heuristic outline tools meanwhile.',
+        server_id: sid,
+        command: row.command,
+        args: row.args,
+        exitCode: r.exitCode,
+        preview: r.preview,
+        supervision:
+          'Spawn uses shell:false with CI env. MCP servers are usually long-lived; timeout only proves the executable starts — not full JSON-RPC handshake.',
       },
+      error: r.error,
     };
   },
 };

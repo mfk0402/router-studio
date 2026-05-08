@@ -52,7 +52,7 @@ export async function getSettings(): Promise<AppSettings> {
   const storedPm = stored.productMode;
   const hasStoredPm =
     typeof storedPm === 'string' &&
-    ['chat', 'edit', 'agent', 'architect', 'review', 'ship'].includes(storedPm);
+    ['chat', 'learn', 'edit', 'agent', 'architect', 'review', 'ship'].includes(storedPm);
   if (!hasStoredPm) {
     merged.productMode = merged.agentMode ? 'agent' : 'chat';
   }

@@ -8,6 +8,7 @@ import type {
   ChatMessage,
 } from '../shared/types.js';
 import { recordCompletion } from './localStats.js';
+import { getErrorMessage } from '../shared/errorUtils.js';
 import { mergeVideoGenerationModels } from './openrouterVideo.js';
 
 const API_BASE = 'https://openrouter.ai/api/v1';
@@ -279,9 +280,11 @@ export async function startChatStream(
 ): Promise<void> {
   if (!win) return;
 
+  const streamT0 = Date.now();
   let streamUsage: CompletionUsageSnapshot | undefined;
   let streamOk = true;
   let skipStreamStats = false;
+  let modelReported: string | undefined = req.model;
 
   const send = (chunk: StreamChunk) => {
     if (!win.isDestroyed()) {
@@ -325,6 +328,8 @@ export async function startChatStream(
     // Accumulate tool calls by index
     const toolCallAccumulators = new Map<number, ToolCallAccumulator>();
 
+    modelReported = req.model;
+
     try {
       const res = await fetch(completionsUrl(req), {
         method: 'POST',
@@ -344,8 +349,6 @@ export async function startChatStream(
     const reader = res.body.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
-    let modelReported: string | undefined;
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -470,8 +473,14 @@ export async function startChatStream(
                 }
               }
             }
-          } catch {
-            // ignore malformed chunk
+          } catch (e) {
+            const preview = payload.length > 400 ? `${payload.slice(0, 400)}…` : payload;
+            console.warn(
+              '[openrouter] Malformed SSE JSON chunk (requestId=%s): %s | payload=%s',
+              requestId,
+              getErrorMessage(e),
+              preview,
+            );
           }
         }
       }
@@ -508,6 +517,8 @@ export async function startChatStream(
       void recordCompletion({
         ok: streamOk,
         usage: streamOk ? streamUsage : undefined,
+        model: modelReported ?? req.model,
+        latencyMs: Date.now() - streamT0,
       });
     }
   }

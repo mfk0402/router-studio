@@ -13,8 +13,13 @@ const STEPS = [
     body: 'Edit code with Monaco. Try Ctrl+K for inline AI edits and Ctrl+. for quick code actions.',
   },
   {
+    title: 'Models',
+    body:
+      'Open the Model Marketplace (Ctrl+Shift+M from chat, or “Models” on the top bar). Browse by category and price, use Auto routing, or pick from Recents after you try a few. Add your OpenRouter API key under Settings → Models when you are ready to send chat.',
+  },
+  {
     title: 'AI panel',
-    body: 'Pick any OpenRouter model, attach images or URLs, enable Agent Mode for multi-step tasks with tools.',
+    body: 'Attach images or URLs, enable Agent Mode for multi-step tasks with tools, and use /commands in the input.',
   },
   {
     title: 'Bottom panel',

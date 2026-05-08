@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { memo, useState, useCallback } from 'react';
 import type { FileEntry } from '../../shared/types';
 import { useApp } from '../store/appStore';
 import { extToLanguage } from '../lib/fileUtils';
@@ -16,12 +16,10 @@ interface ContextMenuState {
   node: FileEntry;
 }
 
-export default function FileTree({ node, depth }: FileTreeProps) {
+function FileTree({ node, depth }: FileTreeProps) {
   const [open, setOpen] = useState(depth <= 0);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const openTab = useApp((s) => s.openTab);
-  const pushLog = useApp((s) => s.pushLog);
-  const setFileTree = useApp((s) => s.setFileTree);
+  /** Avoid `useApp()` here — every tree row subscribed to the whole app store (mass re-renders). */
 
   const handleContextMenu = useCallback((e: React.MouseEvent, targetNode: FileEntry) => {
     e.preventDefault();
@@ -35,8 +33,8 @@ export default function FileTree({ node, depth }: FileTreeProps) {
 
   const refreshTree = useCallback(async () => {
     const tree = await window.api.fs.listFiles();
-    setFileTree(tree);
-  }, [setFileTree]);
+    useApp.getState().setFileTree(tree);
+  }, []);
 
   const getContextMenuItems = useCallback(
     (targetNode: FileEntry): ContextMenuItem[] => {
@@ -49,7 +47,7 @@ export default function FileTree({ node, depth }: FileTreeProps) {
           action: async () => {
             try {
               const content = await window.api.fs.readFile(targetNode.relativePath);
-              openTab({
+              useApp.getState().openTab({
                 relativePath: targetNode.relativePath,
                 name: targetNode.name,
                 language: extToLanguage(targetNode.name),
@@ -58,7 +56,7 @@ export default function FileTree({ node, depth }: FileTreeProps) {
                 dirty: false,
               });
             } catch (e) {
-              pushLog('error', `Open failed: ${(e as Error).message}`);
+              useApp.getState().pushLog('error', `Open failed: ${(e as Error).message}`);
             }
           },
         });
@@ -147,7 +145,7 @@ export default function FileTree({ node, depth }: FileTreeProps) {
 
       return items;
     },
-    [openTab, pushLog, refreshTree],
+    [refreshTree],
   );
 
   if (node.isDirectory) {
@@ -184,7 +182,7 @@ export default function FileTree({ node, depth }: FileTreeProps) {
   const handleOpen = async () => {
     try {
       const content = await window.api.fs.readFile(node.relativePath);
-      openTab({
+      useApp.getState().openTab({
         relativePath: node.relativePath,
         name: node.name,
         language: extToLanguage(node.name),
@@ -193,7 +191,7 @@ export default function FileTree({ node, depth }: FileTreeProps) {
         dirty: false,
       });
     } catch (e) {
-      pushLog('error', `Open failed: ${(e as Error).message}`);
+      useApp.getState().pushLog('error', `Open failed: ${(e as Error).message}`);
     }
   };
 
@@ -219,3 +217,5 @@ export default function FileTree({ node, depth }: FileTreeProps) {
     </>
   );
 }
+
+export default memo(FileTree);

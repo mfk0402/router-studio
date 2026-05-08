@@ -91,10 +91,11 @@ export function registerGhostInlineCompletions(monacoNs: typeof Monaco): Monaco.
       const pathLabel = model.uri.path.replace(/^\//, '') || 'file';
 
       try {
+        const ghostModel = settings.editor.ghostTextCompletionModel?.trim();
         const cycle = await sendChatCompletion({
           apiKey: routing.apiKey,
           openAiBaseUrl: routing.openAiBaseUrl,
-          model: settings.defaultModel,
+          model: ghostModel || settings.defaultModel,
           messages: [
             {
               role: 'system',

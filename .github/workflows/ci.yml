@@ -18,12 +18,49 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
 
       - run: npm ci
+
+      - run: npm run test:unit
 
       - run: npm run verify
 
       - name: npm pack (published tarball layout)
         run: npm pack --dry-run
+
+  # Unpacked desktop artifacts per OS (unsigned when signing secrets are absent).
+  # Optional: set repo secrets for real signing — WIN_CSC_LINK / CSC_KEY_PASSWORD (Windows),
+  # CSC_LINK / CSC_KEY_PASSWORD (macOS .p12), or electron-builder.yml env equivalents.
+  package-desktop:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: electron-builder --dir (current platform)
+        run: npm run build
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Upload electron-builder output (unpacked dir)
+        uses: actions/upload-artifact@v4
+        with:
+          name: router-studio-desktop-${{ runner.os }}
+          path: release/
+          retention-days: 14
+          if-no-files-found: warn

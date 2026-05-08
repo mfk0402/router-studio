@@ -211,7 +211,7 @@ export default function SettingsModal() {
   };
 
   return (
-    <div className="modal-scrim fixed inset-0 z-[110] flex items-center justify-center p-6 sm:p-10">
+    <div className="modal-scrim fixed inset-0 z-[201000] flex items-center justify-center p-6 sm:p-10">
       <div className="glass-panel glass-modal-lg flex max-h-[min(92vh,880px)] w-full max-w-3xl flex-col overflow-hidden ds-transition">
         <div className="flex items-center justify-between border-b border-border-soft px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
@@ -851,13 +851,30 @@ export default function SettingsModal() {
                       activeModelProfile: 'custom',
                     })
                   }
-                  className="w-full rounded-md border border-border bg-bg px-2 py-1 text-sm focus:border-accent focus:outline-none"
+                  className="mb-2 w-full rounded-md border border-border bg-bg px-2 py-1 text-sm focus:border-accent focus:outline-none"
                 >
                   {(['', '480p', '720p', '1080p', '1K', '2K', '4K'] as const).map((o) => (
                     <option key={o || 'def'} value={o}>
                       {o ? o : 'Default (API)'}
                     </option>
                   ))}
+                </select>
+                <label className="mb-1 block text-xs font-medium text-fg-muted">
+                  Generated audio (<code className="text-[10px]">generate_audio</code>)
+                </label>
+                <select
+                  value={settings.openRouterVideoAudio}
+                  onChange={(e) =>
+                    void update({
+                      openRouterVideoAudio: e.target.value as AppSettings['openRouterVideoAudio'],
+                      activeModelProfile: 'custom',
+                    })
+                  }
+                  className="w-full rounded-md border border-border bg-bg px-2 py-1 text-sm focus:border-accent focus:outline-none"
+                >
+                  <option value="auto">Auto — omit field (many Veo models default to synced audio)</option>
+                  <option value="on">Always on — sends true</option>
+                  <option value="off">Silent — sends false (/video & modal default picker)</option>
                 </select>
               </section>
 
@@ -1022,8 +1039,42 @@ export default function SettingsModal() {
 
               <section className="rounded-md border border-border-soft bg-bg-soft p-3">
                 <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
-                  Agent Mode
+                  Codebase search (agent tools)
                 </div>
+                <label className="mb-2 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={settings.semanticSearchEmbedRerank}
+                    onChange={(e) =>
+                      void update({
+                        semanticSearchEmbedRerank: e.target.checked,
+                      })
+                    }
+                  />
+                  {settings.aiCompletionProvider === 'local_openai'
+                    ? 'Use local embeddings to rerank BM25 hits (semantic_search)'
+                    : 'Use OpenRouter embeddings to rerank BM25 hits (semantic_search)'}
+                </label>
+                <label className="mb-1 block text-xs font-medium text-fg-muted">
+                  Embedding model id
+                  <span className="ml-1 font-normal text-fg-subtle">
+                    {settings.aiCompletionProvider === 'local_openai'
+                      ? '(local `POST /v1/embeddings` — e.g. nomic-embed-text on Ollama)'
+                      : '(OpenRouter `/v1/embeddings`)'}
+                  </span>
+                </label>
+                <input
+                  type="text"
+                  spellCheck={false}
+                  value={settings.embeddingOpenRouterModel}
+                  onChange={(e) => void update({ embeddingOpenRouterModel: e.target.value })}
+                  placeholder="openai/text-embedding-3-small"
+                  className="w-full rounded-md border border-border bg-bg px-2 py-1 font-mono text-xs focus:border-accent focus:outline-none"
+                />
+              </section>
+
+              <section className="rounded-md border border-border-soft bg-bg-soft p-3">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">Agent Mode</div>
                 <label className="mb-2 flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
@@ -1217,6 +1268,22 @@ export default function SettingsModal() {
                 </label>
               </section>
 
+              <section className="flex flex-col gap-2 text-xs">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={settings.editor.typescriptLanguageServer}
+                    onChange={(e) =>
+                      void update({
+                        editor: { ...settings.editor, typescriptLanguageServer: e.target.checked },
+                      })
+                    }
+                  />
+                  TypeScript / JavaScript language server · hover + Problems merge
+                  <span className="font-normal text-fg-subtle">(npx typescript-language-server)</span>
+                </label>
+              </section>
+
               <section className="rounded-md border border-border-soft bg-bg-soft p-3">
                 <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
                   Editor — AI ghost text
@@ -1231,7 +1298,7 @@ export default function SettingsModal() {
                       })
                     }
                   />
-                  Inline ghost completions (OpenRouter; uses default model + API key)
+                  Inline ghost completions (OpenRouter · optional cheap model below)
                 </label>
                 <p className="mb-2 text-[10px] text-fg-subtle">
                   Debounced, rate-limited FIM-style suggestions at the cursor. Expect small API usage while typing.
@@ -1273,6 +1340,27 @@ export default function SettingsModal() {
                       className="w-full rounded border border-border bg-bg px-2 py-1 text-xs"
                     />
                   </div>
+                </div>
+                <div className="mt-3">
+                  <label className="mb-0.5 block text-[10px] text-fg-muted">
+                    Ghost completion model{' '}
+                    <span className="font-normal text-fg-subtle">(blank = default chat model)</span>
+                  </label>
+                  <input
+                    type="text"
+                    spellCheck={false}
+                    placeholder="e.g. openai/gpt-4o-mini"
+                    value={settings.editor.ghostTextCompletionModel}
+                    onChange={(e) =>
+                      void update({
+                        editor: {
+                          ...settings.editor,
+                          ghostTextCompletionModel: e.target.value,
+                        },
+                      })
+                    }
+                    className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[11px]"
+                  />
                 </div>
               </section>
 

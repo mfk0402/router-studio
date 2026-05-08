@@ -34,10 +34,6 @@ export function ProblemsPanel({ onClose }: Props) {
   const [filter, setFilter] = useState<'all' | DiagnosticSeverity>('all');
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
 
-  const pushLog = useApp((s) => s.pushLog);
-  const addChatMessage = useApp((s) => s.addChatMessage);
-  const setAiPanelFocused = useApp((s) => s.setAiPanelFocused);
-
   const runDiagnostics = useCallback(async () => {
     setLoading(true);
     try {
@@ -48,13 +44,16 @@ export function ProblemsPanel({ onClose }: Props) {
       setExpandedFiles(new Set(Object.keys(result)));
 
       const counts = countDiagnostics(result);
-      pushLog('info', `Diagnostics: ${counts.errors} errors, ${counts.warnings} warnings`);
+      useApp.getState().pushLog(
+        'info',
+        `Diagnostics: ${counts.errors} errors, ${counts.warnings} warnings`,
+      );
     } catch (e) {
-      pushLog('error', `Failed to run diagnostics: ${(e as Error).message}`);
+      useApp.getState().pushLog('error', `Failed to run diagnostics: ${(e as Error).message}`);
     } finally {
       setLoading(false);
     }
-  }, [pushLog]);
+  }, []);
 
   useEffect(() => {
     runDiagnostics();
@@ -143,14 +142,14 @@ export function ProblemsPanel({ onClose }: Props) {
 
 Please analyze the issue and provide a fix.`;
 
-    addChatMessage({
+    useApp.getState().addChatMessage({
       id: crypto.randomUUID(),
       role: 'user',
       content: prompt,
       createdAt: Date.now(),
     });
 
-    setAiPanelFocused(true);
+    useApp.getState().setAiPanelFocused(true);
     toast.info('Sent to AI for fixing');
   };
 
@@ -172,14 +171,14 @@ ${allDiags.join('\n')}
 
 Please analyze each issue and provide fixes.`;
 
-    addChatMessage({
+    useApp.getState().addChatMessage({
       id: crypto.randomUUID(),
       role: 'user',
       content: prompt,
       createdAt: Date.now(),
     });
 
-    setAiPanelFocused(true);
+    useApp.getState().setAiPanelFocused(true);
     toast.info('Sent all issues to AI');
   };
 

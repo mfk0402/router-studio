@@ -11,6 +11,7 @@ export const tool: RegisteredTool = {
   description:
     'Read linter and type-checker results from the same pipeline as the Problems panel: ' +
     'TypeScript, ESLint, and Python linters. ' +
+    'When Editor → TypeScript LS is enabled, publishDiagnostics from the language server are merged into TypeScript/JavaScript files. ' +
     'Pass path for a single file (relative to project root), or omit path for a project summary.',
   category: 'diagnostic',
   riskLevel: 'low',

@@ -22,6 +22,24 @@ This repo is **the open-source app itself**—Electron + React source, build scr
 
 ---
 
+## Screenshots
+
+Dark-theme **previews** of the in-app layout (Monaco editor, file tree, AI panel, model marketplace, terminal). Actual chrome may vary slightly by version and settings.
+
+**Main workspace** — explorer, split editor area, AI chat, bottom terminal:
+
+<img src="docs/images/readme/editor-workspace-dark.png" alt="Router Studio main workspace: sidebar, Monaco editor, AI panel, terminal" width="920">
+
+**Model picker** — searchable OpenRouter catalog with tier badges:
+
+<img src="docs/images/readme/model-picker-dark.png" alt="Router Studio model picker with searchable models and price tiers" width="720">
+
+**AI panel** — streaming replies, attachments, model context:
+
+<img src="docs/images/readme/ai-panel-dark.png" alt="Router Studio AI chat panel with streaming messages" width="720">
+
+---
+
 ## Highlights
 
 | Area | What you get |

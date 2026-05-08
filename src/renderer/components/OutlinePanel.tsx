@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import * as monaco from 'monaco-editor';
 import { useApp } from '../store/appStore';
+import { useSettings } from '../store/settingsStore';
+import type { LspDocumentSymbolWire } from '../../shared/lspWire';
 
-// Monaco symbol kinds mapped to icons and labels
+const OUTLINE_LSP_LANGS = new Set(['typescript', 'javascript', 'typescriptreact', 'javascriptreact']);
+
 const SYMBOL_ICONS: Record<number, { icon: string; label: string }> = {
   [monaco.languages.SymbolKind.File]: { icon: '📄', label: 'File' },
   [monaco.languages.SymbolKind.Module]: { icon: '📦', label: 'Module' },
@@ -51,6 +54,23 @@ export interface DocumentSymbol {
   children: DocumentSymbol[];
 }
 
+function mapLspWireToDocumentSymbols(nodes: LspDocumentSymbolWire[]): DocumentSymbol[] {
+  const mapRange = (r: LspDocumentSymbolWire['range']) => ({
+    startLineNumber: r.start.line + 1,
+    startColumn: r.start.character + 1,
+    endLineNumber: r.end.line + 1,
+    endColumn: r.end.character + 1,
+  });
+  return nodes.map((sym) => ({
+    name: sym.name,
+    detail: sym.detail ?? '',
+    kind: sym.kind,
+    range: mapRange(sym.range),
+    selectionRange: mapRange(sym.selectionRange),
+    children: sym.children?.length ? mapLspWireToDocumentSymbols(sym.children) : [],
+  }));
+}
+
 interface OutlinePanelProps {
   editorRef: React.RefObject<monaco.editor.IStandaloneCodeEditor | null>;
 }
@@ -63,6 +83,7 @@ export default function OutlinePanel({ editorRef }: OutlinePanelProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   const activeTabPath = useApp((s) => s.activeTabPath);
+  const tsLsEnabled = useSettings((s) => s.settings.editor.typescriptLanguageServer ?? false);
 
   // Fetch document symbols from Monaco
   const fetchSymbols = useCallback(async () => {
@@ -81,11 +102,27 @@ export default function OutlinePanel({ editorRef }: OutlinePanelProps) {
     setIsLoading(true);
 
     try {
-      // Extract symbols using regex patterns (works for common languages)
       const content = model.getValue();
       const language = model.getLanguageId();
+
+      if (activeTabPath && tsLsEnabled && OUTLINE_LSP_LANGS.has(language)) {
+        try {
+          const wire = await window.api.lsp.documentSymbols(activeTabPath);
+          if (wire && wire.length > 0) {
+            const mapped = mapLspWireToDocumentSymbols(wire);
+            setSymbols(mapped);
+            const topLevelKeys = mapped.map((s) => `${s.name}-${s.kind}`);
+            setExpandedSymbols(new Set(topLevelKeys));
+            return;
+          }
+        } catch {
+          /* fall through to regex outline */
+        }
+      }
+
+      // Regex fallback (multi-language)
       const extractedSymbols = extractSymbolsFromCode(content, language);
-      
+
       if (extractedSymbols.length > 0) {
         setSymbols(extractedSymbols);
         // Auto-expand top-level items
@@ -100,7 +137,7 @@ export default function OutlinePanel({ editorRef }: OutlinePanelProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [editorRef]);
+  }, [editorRef, activeTabPath, tsLsEnabled]);
 
   // Refetch symbols when the active tab changes or editor model changes
   useEffect(() => {
@@ -314,6 +351,8 @@ export default function OutlinePanel({ editorRef }: OutlinePanelProps) {
 // Export symbols for use in QuickOpen
 export function useDocumentSymbols(editorRef: React.RefObject<monaco.editor.IStandaloneCodeEditor | null>) {
   const [symbols, setSymbols] = useState<DocumentSymbol[]>([]);
+  const activeTabPath = useApp((s) => s.activeTabPath);
+  const tsLsEnabled = useSettings((s) => s.settings.editor.typescriptLanguageServer ?? false);
 
   const fetchSymbols = useCallback(async () => {
     const editor = editorRef.current;
@@ -325,6 +364,21 @@ export function useDocumentSymbols(editorRef: React.RefObject<monaco.editor.ISta
     try {
       const content = model.getValue();
       const language = model.getLanguageId();
+
+      if (activeTabPath && tsLsEnabled && OUTLINE_LSP_LANGS.has(language)) {
+        try {
+          const wire = await window.api.lsp.documentSymbols(activeTabPath);
+          if (wire && wire.length > 0) {
+            const extracted = mapLspWireToDocumentSymbols(wire);
+            const flattened = flattenSymbols(extracted);
+            setSymbols(flattened);
+            return flattened;
+          }
+        } catch {
+          /* fall through */
+        }
+      }
+
       const extractedSymbols = extractSymbolsFromCode(content, language);
       const flattened = flattenSymbols(extractedSymbols);
       setSymbols(flattened);
@@ -332,7 +386,7 @@ export function useDocumentSymbols(editorRef: React.RefObject<monaco.editor.ISta
     } catch {
       return [];
     }
-  }, [editorRef]);
+  }, [editorRef, activeTabPath, tsLsEnabled]);
 
   return { symbols, fetchSymbols };
 }

@@ -20,12 +20,15 @@ import * as ctxApi from './context.js';
 import * as tasksApi from './tasks.js';
 import * as checkpointsApi from './checkpointsApi.js';
 import * as toolsApi from './tools/index.js';
+import * as projectGraphApi from './projectGraph.js';
+import * as modelRouterApi from './modelRouter.js';
 import * as sessionApi from './session.js';
 import * as diagnosticsApi from './diagnostics.js';
 import * as screenshotApi from './screenshot.js';
 import * as toolAuditApi from './toolAudit.js';
 import * as updaterApi from './updater.js';
 import * as statsApi from './localStats.js';
+import * as lspHost from './lspHost.js';
 import { restartWebhookServer } from './webhookServer.js';
 import * as accountVault from './accountVault.js';
 import {
@@ -36,8 +39,10 @@ import {
 } from './emailVerification.js';
 import type {
   AgentTask,
+  AgentRunEvent,
   AppSettings,
   ChatCompletionRequest,
+  NormalizedModel,
   OpenRouterSpeechRequest,
   OpenRouterVideoSubmitRequest,
   Rule,
@@ -115,12 +120,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     const next = await store.setSettings(partial);
     restartWebhookServer(getWindow(), next.webhookListenerEnabled, next.webhookPort);
     accountVault.scheduleVaultSyncIfLoggedIn();
+    const root = fsApi.getRoot();
+    await lspHost.ensureLspForWorkspace(next.editor.typescriptLanguageServer, root);
     return next;
   });
 
   // ---- file system ----
   ipcMain.handle('fs:openFolder', async () => fsApi.openFolder(getWindow()));
-  ipcMain.handle('fs:setRoot', async (_e, root: string) => fsApi.setRoot(root));
+  ipcMain.handle('fs:setRoot', async (_e, root: string) => {
+    const ok = await fsApi.setRoot(root);
+    const s = await store.getSettings();
+    if (ok) {
+      await lspHost.ensureLspForWorkspace(s.editor.typescriptLanguageServer, root);
+    } else {
+      await lspHost.ensureLspForWorkspace(false, null);
+    }
+    return ok;
+  });
   ipcMain.handle('fs:getRoot', async () => fsApi.getRoot());
   ipcMain.handle('fs:listFiles', async () => fsApi.listFiles());
   ipcMain.handle('fs:readFile', async (_e, rel: string) => fsApi.readFile(rel));
@@ -225,6 +241,83 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('tasks:save', async (_e, task: AgentTask) => tasksApi.saveTask(task));
   ipcMain.handle('tasks:delete', async (_e, id: string) => tasksApi.deleteTask(id));
 
+  ipcMain.handle('agentQueue:list', async () => tasksApi.listQueuedTasks());
+  ipcMain.handle('agentQueue:enqueue', async (_e, task: AgentTask) => {
+    const saved = await tasksApi.enqueueTask(task);
+    const event = (await tasksApi.listTaskEvents(saved.id)).at(-1);
+    if (event) getWindow()?.webContents.send('agentEvents:changed', event);
+    return saved;
+  });
+  ipcMain.handle('agentQueue:startNext', async () => {
+    const saved = await tasksApi.startNextQueuedTask();
+    if (saved) {
+      const event = (await tasksApi.listTaskEvents(saved.id)).at(-1);
+      if (event) getWindow()?.webContents.send('agentEvents:changed', event);
+    }
+    return saved;
+  });
+  ipcMain.handle(
+    'agentQueue:updateStatus',
+    async (_e, id: string, status: AgentTask['status'], phase?: AgentTask['phase']) => {
+      const saved = await tasksApi.updateTaskStatus(id, status, phase);
+      if (saved) {
+        const event = (await tasksApi.listTaskEvents(saved.id)).at(-1);
+        if (event) getWindow()?.webContents.send('agentEvents:changed', event);
+      }
+      return saved;
+    },
+  );
+  ipcMain.handle('agentEvents:list', async (_e, taskId: string) => tasksApi.listTaskEvents(taskId));
+  ipcMain.handle(
+    'agentEvents:append',
+    async (
+      _e,
+      event: Omit<AgentRunEvent, 'id' | 'createdAt'> & { id?: string; createdAt?: number },
+    ) => {
+      const saved = await tasksApi.appendTaskEvent(event);
+      getWindow()?.webContents.send('agentEvents:changed', saved);
+      return saved;
+    },
+  );
+  ipcMain.handle('agentEvents:clear', async (_e, taskId: string) => tasksApi.clearTaskEvents(taskId));
+
+  ipcMain.handle('projectGraph:get', async () => {
+    const root = fsApi.getRoot();
+    if (!root) return null;
+    return projectGraphApi.getProjectGraph(root);
+  });
+  ipcMain.handle('projectGraph:rebuild', async () => {
+    const root = fsApi.getRoot();
+    if (!root) return null;
+    return projectGraphApi.buildProjectGraph(root);
+  });
+  ipcMain.handle('projectGraph:recommend', async (_e, query: string, limit?: number) => {
+    const root = fsApi.getRoot();
+    if (!root) return [];
+    return projectGraphApi.recommendProjectContext(root, query, limit);
+  });
+  ipcMain.handle(
+    'modelRouter:explainRoute',
+    async (
+      _e,
+      input: {
+        prompt: string;
+        estimatedPromptTokens: number;
+        hasImageAttachment: boolean;
+        models?: NormalizedModel[];
+      },
+    ) => {
+      const settings = await store.getSettings();
+      return modelRouterApi.explainModelRoute({
+        settings,
+        models: Array.isArray(input.models) ? input.models : [],
+        prompt: String(input.prompt ?? ''),
+        estimatedPromptTokens: Number(input.estimatedPromptTokens) || 0,
+        hasImageAttachment: !!input.hasImageAttachment,
+      });
+    },
+  );
+
   ipcMain.handle('checkpoints:list', async () => checkpointsApi.listCheckpointSummaries());
   ipcMain.handle('checkpoints:get', async (_e, id: string) => checkpointsApi.readCheckpoint(id));
   ipcMain.handle('checkpoints:restore', async (_e, id: string) => {
@@ -308,6 +401,69 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('diagnostics:runForFile', async (_e, filePath: string) =>
     diagnosticsApi.runDiagnosticsForFile(filePath),
   );
+
+  ipcMain.handle('lsp:configure', async (_e, projectRoot: string | null) => {
+    const s = await store.getSettings();
+    await lspHost.ensureLspForWorkspace(s.editor.typescriptLanguageServer, projectRoot);
+    return lspHost.getLspBridgeStatus();
+  });
+  ipcMain.handle(
+    'lsp:syncDoc',
+    async (
+      _e,
+      payload: {
+        kind: 'open' | 'change' | 'close';
+        relPath: string;
+        languageId: string;
+        text?: string;
+      },
+    ) => {
+      const s = await store.getSettings();
+      if (!s.editor.typescriptLanguageServer) return { ok: false as const };
+      await lspHost.syncDocument(payload.kind, payload.relPath, payload.languageId, payload.text);
+      return { ok: true as const };
+    },
+  );
+  ipcMain.handle(
+    'lsp:hover',
+    async (_e, payload: { relPath: string; line: number; character: number }) => {
+      return lspHost.lspHover(payload.relPath, payload.line, payload.character);
+    },
+  );
+  ipcMain.handle('lsp:documentSymbols', async (_e, relPath: string) => {
+    const s = await store.getSettings();
+    if (!s.editor.typescriptLanguageServer) return null;
+    return lspHost.lspDocumentSymbols(relPath);
+  });
+  ipcMain.handle(
+    'lsp:definition',
+    async (_e, payload: { relPath: string; line: number; character: number }) => {
+      const s = await store.getSettings();
+      if (!s.editor.typescriptLanguageServer) return null;
+      return lspHost.lspDefinition(payload.relPath, payload.line, payload.character);
+    },
+  );
+  ipcMain.handle(
+    'lsp:references',
+    async (
+      _e,
+      payload: { relPath: string; line: number; character: number; includeDeclaration?: boolean },
+    ) => {
+      const s = await store.getSettings();
+      if (!s.editor.typescriptLanguageServer) return null;
+      return lspHost.lspReferences(
+        payload.relPath,
+        payload.line,
+        payload.character,
+        payload.includeDeclaration ?? true,
+      );
+    },
+  );
+  ipcMain.handle('lsp:workspaceSymbols', async (_e, query: string) => {
+    const s = await store.getSettings();
+    if (!s.editor.typescriptLanguageServer) return [];
+    return lspHost.lspWorkspaceSymbolSearch(typeof query === 'string' ? query : '');
+  });
 
   // ---- screenshot ----
   ipcMain.handle('screenshot:captureAllScreens', async () => screenshotApi.captureAllScreens());

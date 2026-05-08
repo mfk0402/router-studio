@@ -145,36 +145,19 @@ async function ensureNative(pkg, ver, label) {
   }
 }
 
+/**
+ * Previously removed "wrong" `@rollup/*` dirs on Windows based on install-time Node arch.
+ * That breaks whenever `npm install` runs under a different arch than `node` used for dev
+ * (common with 64-bit installer + 32-bit Node on PATH, CI vs local, etc.).
+ * Leaving all optional Rollup binaries in place is harmless (extra disk only).
+ */
 function pruneWrongRollupOnWindows() {
-  if (platform !== 'win32') return;
-  let wrong = [];
-  if (arch === 'x64') wrong = ['rollup-win32-ia32-msvc', 'rollup-win32-arm64-msvc'];
-  else if (arch === 'ia32') wrong = ['rollup-win32-x64-msvc', 'rollup-win32-arm64-msvc'];
-  else if (arch === 'arm64') wrong = ['rollup-win32-ia32-msvc', 'rollup-win32-x64-msvc'];
-  for (const w of wrong) {
-    try {
-      rmSync(join(root, 'node_modules/@rollup', w), { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-  }
+  /* intentionally no-op — see docstring */
 }
 
+/** Same rationale as {@link pruneWrongRollupOnWindows}: do not delete sibling arch binaries. */
 function pruneWrongEsbuildOnWindows() {
-  if (platform !== 'win32') return;
-  const wrong =
-    arch === 'x64'
-      ? ['win32-ia32', 'win32-arm64']
-      : arch === 'arm64'
-        ? ['win32-ia32', 'win32-x64']
-        : ['win32-x64', 'win32-arm64'];
-  for (const w of wrong) {
-    try {
-      rmSync(join(root, 'node_modules/@esbuild', w), { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-  }
+  /* intentionally no-op — see pruneWrongRollupOnWindows docstring */
 }
 
 async function main() {

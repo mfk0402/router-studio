@@ -11,6 +11,8 @@ import type {
 interface ToolsState {
   /** All available tool definitions */
   toolDefinitions: ToolDefinition[];
+  /** Last failure loading definitions from the main process (cleared on success). */
+  definitionsError: string | null;
   /** Loading state */
   loading: boolean;
   /** Pending tool approval request (only one at a time) */
@@ -36,6 +38,7 @@ interface ToolsState {
 
 export const useTools = create<ToolsState>((set, get) => ({
   toolDefinitions: [],
+  definitionsError: null,
   loading: false,
   pendingApproval: null,
   executions: new Map(),
@@ -45,9 +48,12 @@ export const useTools = create<ToolsState>((set, get) => ({
     set({ loading: true });
     try {
       const defs = await window.api.tools.listDefinitions(productMode);
-      set({ toolDefinitions: defs });
+      set({ toolDefinitions: defs, definitionsError: null });
     } catch (e) {
       console.error('[tools] loadDefinitions failed:', e);
+      const msg =
+        e instanceof Error ? e.message : typeof e === 'string' ? e : 'Failed to load tool definitions.';
+      set({ toolDefinitions: [], definitionsError: msg });
     } finally {
       set({ loading: false });
     }

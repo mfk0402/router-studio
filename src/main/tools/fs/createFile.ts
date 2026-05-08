@@ -5,6 +5,8 @@ import { getSettings } from '../../secureStore.js';
 import { assertWriteAllowed } from '../../writePolicy.js';
 import { pushWriteUndo } from '../../writeUndoStack.js';
 import { assertSensitivePathAllowed } from '../../security/sensitiveFileGuard.js';
+import { resolveWithinRoot } from '../../security/pathValidation.js';
+import { toErrnoException } from '../../../shared/errorUtils.js';
 
 export const tool: RegisteredTool = {
   name: 'create_file',
@@ -40,17 +42,15 @@ export const tool: RegisteredTool = {
       return { success: false, error: 'Path is required.' };
     }
 
-    // Security: ensure path doesn't escape project root
-    const absPath = path.resolve(ctx.projectRoot, relativePath);
-    const rootWithSep = ctx.projectRoot.endsWith(path.sep)
-      ? ctx.projectRoot
-      : ctx.projectRoot + path.sep;
-    if (absPath !== ctx.projectRoot && !absPath.startsWith(rootWithSep)) {
+    // Security: ensure path doesn't escape project root using centralized validation
+    const resolved = resolveWithinRoot(ctx.projectRoot, relativePath);
+    if (!resolved) {
       return { success: false, error: 'Path must be within the project root.' };
     }
+    const absPath = resolved.absPath;
 
     const settings = await getSettings();
-    const policy = assertWriteAllowed(settings, relativePath);
+    const policy = assertWriteAllowed(settings, resolved.relativePath);
     if (!policy.ok) {
       return { success: false, error: policy.error };
     }
@@ -100,7 +100,7 @@ export const tool: RegisteredTool = {
         },
       };
     } catch (e) {
-      const err = e as NodeJS.ErrnoException;
+      const err = toErrnoException(e);
       return { success: false, error: `Failed to create file: ${err.message}` };
     }
   },

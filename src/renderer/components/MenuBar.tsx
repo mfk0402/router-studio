@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, memo } from 'react';
+import { createPortal } from 'react-dom';
 import { useApp } from '../store/appStore';
 import { GITHUB_ISSUES_URL, GITHUB_README_URL } from '../../shared/projectUrls';
 import { useSettings } from '../store/settingsStore';
 import { markUserInitiatedUpdateCheck } from '../lib/updateCheckFlow';
+import { getPortalRoot } from '../lib/portalRoot';
 import { toast } from './ToastContainer';
 import logoIcon from '../assets/logo-icon.png';
+import { useResolvedTheme } from '../hooks/useResolvedTheme';
 
 interface MenuItem {
   label: string;
@@ -20,12 +23,21 @@ interface Menu {
   items: MenuItem[];
 }
 
-export default function MenuBar() {
+/**
+ * Match ContextMenu stacking (~200k): Monaco / xterm / blurred chrome create compositor
+ * layers that sit above modest z-index values; keep menubar below context menu (200000).
+ */
+const MENU_DROPDOWN_Z = 199000;
+
+function MenuBar() {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [menuCoords, setMenuCoords] = useState<{ top: number; left: number } | null>(null);
   const [showAbout, setShowAbout] = useState(false);
   const [showFeatures, setShowFeatures] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const menuBarRef = useRef<HTMLDivElement>(null);
+  const dropdownPortalRef = useRef<HTMLDivElement>(null);
+  const triggerRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const triggerWelcomeTour = useApp((s) => s.triggerWelcomeTour);
   const setShowRoadmap = useApp((s) => s.setShowRoadmap);
   const setShowUsageStats = useApp((s) => s.setShowUsageStats);
@@ -46,16 +58,55 @@ export default function MenuBar() {
   const closeTab = useApp((s) => s.closeTab);
   const freeModeEnabled = useApp((s) => s.freeModeEnabled);
   const setFreeMode = useApp((s) => s.setFreeMode);
+  const pickAndOpenProjectFolder = useApp((s) => s.pickAndOpenProjectFolder);
+  const projectRoot = useApp((s) => s.projectRoot);
+  const projectLoading = useApp((s) => s.projectLoading);
+  const projectLoadingLabel = useApp((s) => s.projectLoadingLabel);
 
   const settings = useSettings((s) => s.settings);
   const updateSettings = useSettings((s) => s.update);
+  const resolvedTheme = useResolvedTheme();
 
-  // Close menu when clicking outside
+  const folderLabel = (() => {
+    if (!projectRoot?.trim()) return 'No folder';
+    const s = projectRoot.replace(/[/\\]+$/, '');
+    const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+    return i >= 0 ? s.slice(i + 1) : s;
+  })();
+
+  const syncMenuPosition = useCallback(() => {
+    if (!openMenu) return;
+    const btn = triggerRefs.current.get(openMenu);
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    setMenuCoords({ top: Math.round(r.bottom + 4), left: Math.round(r.left) });
+  }, [openMenu]);
+
+  useLayoutEffect(() => {
+    if (!openMenu) {
+      setMenuCoords(null);
+      return;
+    }
+    syncMenuPosition();
+  }, [openMenu, syncMenuPosition]);
+
+  useEffect(() => {
+    if (!openMenu) return;
+    window.addEventListener('scroll', syncMenuPosition, true);
+    window.addEventListener('resize', syncMenuPosition);
+    return () => {
+      window.removeEventListener('scroll', syncMenuPosition, true);
+      window.removeEventListener('resize', syncMenuPosition);
+    };
+  }, [openMenu, syncMenuPosition]);
+
+  // Close menu when clicking outside (menubar + portaled dropdown)
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (menuBarRef.current && !menuBarRef.current.contains(e.target as Node)) {
-        setOpenMenu(null);
-      }
+      const t = e.target as Node;
+      if (menuBarRef.current?.contains(t)) return;
+      if (dropdownPortalRef.current?.contains(t)) return;
+      setOpenMenu(null);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -237,6 +288,14 @@ export default function MenuBar() {
         },
         { divider: true, label: '' },
         {
+          label: resolvedTheme === 'light' ? 'Switch to Dark Theme' : 'Switch to Light Theme',
+          action: async () => {
+            await updateSettings({ theme: resolvedTheme === 'light' ? 'dark' : 'light' });
+            await useSettings.getState().load();
+            setOpenMenu(null);
+          },
+        },
+        {
           label: settings.zenMode ? 'Exit Zen Mode (fullscreen AI)' : 'Zen Mode (fullscreen AI)',
           shortcut: 'Escape',
           action: async () => {
@@ -384,23 +443,28 @@ export default function MenuBar() {
     },
   ];
 
+  const openMenuItems = menus.find((m) => m.label === openMenu)?.items;
+
   return (
     <>
       <div
         ref={menuBarRef}
-        className="chrome-menubar relative flex h-8 shrink-0 select-none items-center px-2 ds-transition"
+        className="chrome-menubar relative flex h-10 shrink-0 select-none items-center gap-1 px-2 ds-transition"
       >
-        {/* Logo */}
-        <div className="mr-4 flex items-center gap-2">
+        <div className="mr-1 flex shrink-0 items-center gap-2">
           <span className="brand-mark-icon-wrap">
-            <img src={logoIcon} alt="" className="h-5 w-5 select-none" draggable={false} />
+            <img src={logoIcon} alt="" className="h-6 w-6 select-none" draggable={false} />
           </span>
         </div>
 
-        {/* Menu items */}
         {menus.map((menu) => (
-          <div key={menu.label} className="relative">
+          <div key={menu.label}>
             <button
+              type="button"
+              ref={(el) => {
+                if (el) triggerRefs.current.set(menu.label, el);
+                else triggerRefs.current.delete(menu.label);
+              }}
               onClick={() => setOpenMenu(openMenu === menu.label ? null : menu.label)}
               onMouseEnter={() => openMenu && setOpenMenu(menu.label)}
               className={`rounded-md px-3 py-1 text-xs font-medium transition-colors duration-layout ${
@@ -411,40 +475,23 @@ export default function MenuBar() {
             >
               {menu.label}
             </button>
-
-            {openMenu === menu.label && (
-              <div className="chrome-dropdown absolute left-0 top-full z-50 min-w-52 py-1 ds-transition ring-1 ring-subtle">
-                {menu.items.map((item, i) =>
-                  item.divider ? (
-                    <div key={i} className="my-1 h-px bg-border-soft" />
-                  ) : (
-                    <button
-                      key={item.label}
-                      onClick={item.action}
-                      disabled={item.disabled}
-                      className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors duration-layout ${
-                        item.disabled
-                          ? 'cursor-not-allowed text-fg-subtle'
-                          : 'text-fg-muted hover:bg-accent/10 hover:text-fg'
-                      }`}
-                    >
-                      <span>{item.label}</span>
-                      {item.shortcut && (
-                        <span className="ml-4 text-[10px] text-fg-subtle">{item.shortcut}</span>
-                      )}
-                    </button>
-                  ),
-                )}
-              </div>
-            )}
           </div>
         ))}
 
-        {/* Spacer */}
-        <div className="flex-1" />
+        <div className="mx-2 hidden h-5 w-px shrink-0 bg-border-soft/70 sm:block" />
+        <button
+          type="button"
+          className="hidden max-w-[12rem] shrink truncate rounded px-2 py-1 font-mono text-[10px] leading-tight text-fg-subtle hover:bg-bg-hover hover:text-fg disabled:cursor-wait disabled:opacity-80 sm:block"
+          title={projectRoot || undefined}
+          disabled={projectLoading}
+          onClick={() => void pickAndOpenProjectFolder()}
+        >
+          {projectLoading ? projectLoadingLabel ?? 'Working...' : folderLabel}
+        </button>
 
-        {/* Quick status */}
-        <div className="flex items-center gap-3 text-[10px] text-fg-subtle">
+        <div className="min-w-4 flex-1" />
+
+        <div className="hidden shrink-0 items-center gap-2 text-[10px] text-fg-subtle lg:flex">
           {settings.agentMode && (
             <span className="rounded bg-accent/20 px-1.5 py-0.5 text-accent">Agent Mode</span>
           )}
@@ -453,6 +500,48 @@ export default function MenuBar() {
           )}
         </div>
       </div>
+
+      {openMenu &&
+        menuCoords &&
+        openMenuItems &&
+        createPortal(
+          <div
+            ref={dropdownPortalRef}
+            className="chrome-dropdown chrome-dropdown--portal fixed min-w-[13.5rem] max-h-[min(70vh,32rem)] overflow-y-auto shadow-float ds-transition ring-1 ring-subtle"
+            style={{
+              top: menuCoords.top,
+              left: menuCoords.left,
+              zIndex: MENU_DROPDOWN_Z,
+              maxHeight: Math.max(120, window.innerHeight - menuCoords.top - 12),
+              pointerEvents: 'auto',
+            }}
+            role="menu"
+          >
+            {openMenuItems.map((item, i) =>
+              item.divider ? (
+                <div key={i} className="my-1 h-px bg-border-soft" />
+              ) : (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={item.action}
+                  disabled={item.disabled}
+                  className={`flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[11px] transition-colors duration-layout ${
+                    item.disabled
+                      ? 'cursor-not-allowed text-fg-muted opacity-80'
+                      : 'text-fg-muted hover:bg-accent/10 hover:text-fg'
+                  }`}
+                >
+                  <span>{item.label}</span>
+                  {item.shortcut && (
+                    <span className="ml-4 text-[10px] text-fg-subtle">{item.shortcut}</span>
+                  )}
+                </button>
+              ),
+            )}
+          </div>,
+          getPortalRoot(),
+        )}
 
       {/* About Modal */}
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
@@ -466,6 +555,8 @@ export default function MenuBar() {
   );
 }
 
+export default memo(MenuBar);
+
 function AboutModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-scrim fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
@@ -473,13 +564,15 @@ function AboutModal({ onClose }: { onClose: () => void }) {
         className="glass-panel glass-modal-lg w-full max-w-md p-6 ds-transition"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-6 flex items-center gap-4">
-          <div className="brand-logo-plate !p-3">
+        <div className="mb-6 flex min-w-0 items-center gap-4">
+          <div className="brand-logo-plate shrink-0 !p-3">
             <img src={logoIcon} alt="Router Studio" className="h-14 w-14 select-none" draggable={false} />
           </div>
-          <div>
-            <h2 className="brand-wordmark text-xl">Router Studio</h2>
-            <p className="text-sm text-fg-muted">One workspace for every AI model</p>
+          <div className="min-w-0 flex-1">
+            <h2 className="brand-wordmark break-words text-xl">Router Studio</h2>
+            <p className="break-words text-pretty text-sm text-fg-muted">
+              One workspace for every AI model
+            </p>
           </div>
         </div>
 
@@ -800,10 +893,11 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
       { keys: 'Ctrl+Shift+Tab', action: 'Previous Tab' },
     ]},
     { category: 'AI & Agent', items: [
-      { keys: 'Ctrl+M', action: 'Select AI Model' },
+      { keys: 'Ctrl+Shift+1…7', action: 'Set product mode (Chat, Learn, Edit, Agent, …)' },
+      { keys: 'Ctrl/Cmd+M', action: 'Select AI Model' },
       { keys: 'Ctrl+Shift+R', action: 'Manage Rules/Skills' },
       { keys: 'Ctrl+Shift+T', action: 'View Agent Tasks' },
-      { keys: 'Ctrl+Enter', action: 'Send Message (in AI panel)' },
+      { keys: 'Ctrl+Enter / Cmd+Enter', action: 'Send Message (in AI panel)' },
       { keys: 'Shift+Enter', action: 'New Line (in AI panel)' },
     ]},
     { category: 'Editor', items: [

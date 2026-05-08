@@ -5,26 +5,11 @@ import MonacoEditorPane from './components/MonacoEditorPane';
 import AiPanel from './components/AiPanel';
 import BottomPanel from './components/BottomPanel';
 import { PanelResizeHandle } from './components/PanelResizeHandle';
-import SettingsModal from './components/SettingsModal';
-import ModelPicker from './components/ModelPicker';
-import DiffPreview from './components/DiffPreview';
-import MultiDiffPreview from './components/MultiDiffPreview';
-import QuickOpen from './components/QuickOpen';
-import RulesModal from './components/RulesModal';
-import TasksModal from './components/TasksModal';
-import ToolApprovalModal from './components/ToolApprovalModal';
-import CommandPalette from './components/CommandPalette';
 import MenuBar from './components/MenuBar';
 import ToastContainer from './components/ToastContainer';
-import { CrashRecoveryModal } from './components/CrashRecoveryModal';
-import { FindReplaceDialog } from './components/FindReplaceDialog';
-import WelcomeTour from './components/WelcomeTour';
-import RoadmapModal from './components/RoadmapModal';
-import StatsModal from './components/StatsModal';
-import BenchmarkModal from './components/BenchmarkModal';
-import AccountModal from './components/AccountModal';
 import WelcomePane from './components/WelcomePane';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { LazyModalLayer } from './components/LazyModalLayer';
 import { toast } from './components/ToastContainer';
 import { useApp } from './store/appStore';
 import { useSettings } from './store/settingsStore';
@@ -38,10 +23,63 @@ import { consumeUserInitiatedUpdateCheck } from './lib/updateCheckFlow';
 import { PRODUCT_MODE_SEQUENCE } from '../shared/productMode';
 import { useResolvedTheme } from './hooks/useResolvedTheme';
 import { useSplashDismiss } from './hooks/useSplashDismiss';
-import logoIcon from './assets/logo-icon.png';
 
 const SESSION_SAVE_INTERVAL = 30000; // 30 seconds
 const AUTOSAVE_DEBOUNCE = 2000; // 2 seconds after last edit
+const SIDEBAR_MIN_WIDTH = 180;
+const SIDEBAR_MAX_WIDTH = 420;
+const AI_PANEL_MIN_WIDTH = 320;
+const AI_PANEL_MAX_WIDTH = 860;
+const SPLITTER_WIDTH_ESTIMATE = 8;
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function preferredEditorMinWidth(viewportWidth: number) {
+  if (viewportWidth >= 1500) return 520;
+  if (viewportWidth >= 1200) return 420;
+  return 340;
+}
+
+function useViewportWidth() {
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === 'undefined' ? 1440 : window.innerWidth,
+  );
+
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  return viewportWidth;
+}
+
+function getAiPanelMaxWidth(viewportWidth: number, sidebarWidth: number) {
+  const availableForWorkbench = Math.max(
+    0,
+    viewportWidth - sidebarWidth - SPLITTER_WIDTH_ESTIMATE,
+  );
+  const editorReserve = preferredEditorMinWidth(viewportWidth);
+  const editorReserveCap = availableForWorkbench - editorReserve;
+  return Math.max(
+    AI_PANEL_MIN_WIDTH,
+    Math.min(AI_PANEL_MAX_WIDTH, editorReserveCap),
+  );
+}
+
+function getClampedAiPanelWidth(
+  width: number,
+  viewportWidth: number,
+  sidebarWidth: number,
+) {
+  return clampNumber(
+    width,
+    AI_PANEL_MIN_WIDTH,
+    getAiPanelMaxWidth(viewportWidth, sidebarWidth),
+  );
+}
 
 export default function App() {
   useSplashDismiss();
@@ -99,13 +137,14 @@ function AppInner() {
   const toggleSidebar = useApp((s) => s.toggleSidebar);
   const setAiPanelFocused = useApp((s) => s.setAiPanelFocused);
   const pushLog = useApp((s) => s.pushLog);
-  const pendingDiff = useApp((s) => s.pendingDiff);
-  const pendingMultiDiff = useApp((s) => s.pendingMultiDiff);
   const sidebarCollapsed = useApp((s) => s.sidebarCollapsed);
   const tabs = useApp((s) => s.tabs);
   const activeTabPath = useApp((s) => s.activeTabPath);
   const markTabSaved = useApp((s) => s.markTabSaved);
   const projectRoot = useApp((s) => s.projectRoot);
+  const projectLoading = useApp((s) => s.projectLoading);
+  const projectLoadingLabel = useApp((s) => s.projectLoadingLabel);
+  const sessionLoading = useApp((s) => s.sessionLoading);
   const refreshRules = useRules((s) => s.refresh);
   const refreshTasks = useTasks((s) => s.refresh);
   const loadToolDefinitions = useTools((s) => s.loadDefinitions);
@@ -116,7 +155,6 @@ function AppInner() {
   const clearCrashFlag = useApp((s) => s.clearCrashFlag);
   const loadSession = useApp((s) => s.loadSession);
   const saveSession = useApp((s) => s.saveSession);
-  const crashDetected = useApp((s) => s.crashDetected);
   const autosaveFile = useApp((s) => s.autosaveFile);
   const autosaveEnabled = useApp((s) => s.autosaveEnabled);
 
@@ -126,6 +164,15 @@ function AppInner() {
   const editorSplit = useSettings((s) => s.settings.editorSplit);
   const sidebarWidthPx = useSettings((s) => s.settings.sidebarWidthPx);
   const aiPanelWidthPx = useSettings((s) => s.settings.aiPanelWidthPx);
+  const viewportWidth = useViewportWidth();
+  const layoutSidebarWidthPx = sidebarCollapsed
+    ? 0
+    : clampNumber(sidebarWidthPx, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
+  const layoutAiPanelWidthPx = getClampedAiPanelWidth(
+    aiPanelWidthPx,
+    viewportWidth,
+    layoutSidebarWidthPx,
+  );
 
   const autosaveTimerRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const sessionInitializedRef = useRef(false);
@@ -171,6 +218,28 @@ function AppInner() {
     return () => {
       if (treeRefreshTimerRef.current) clearTimeout(treeRefreshTimerRef.current);
     };
+  }, []);
+
+  // After idle, prefetch common code-split modals so Settings / palette / quick open open without a visible stall.
+  useEffect(() => {
+    const run = () => {
+      void import('./components/SettingsModal');
+      void import('./components/CommandPalette');
+      void import('./components/QuickOpen');
+      void import('./components/RulesModal');
+      void import('./components/TasksModal');
+      void import('./components/FindReplaceDialog');
+      void import('./components/StatsModal');
+      void import('./components/BenchmarkModal');
+      void import('./components/AccountModal');
+    };
+    const ric = window.requestIdleCallback;
+    if (typeof ric === 'function') {
+      const id = ric(run, { timeout: 4500 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const t = window.setTimeout(run, 2000);
+    return () => clearTimeout(t);
   }, []);
 
   // Periodic session save
@@ -516,7 +585,7 @@ function AppInner() {
         useApp.getState().setShowFindReplace(true);
       } else if (e.shiftKey && e.code.startsWith('Digit')) {
         const n = Number(e.code.replace('Digit', ''));
-        if (n >= 1 && n <= 6) {
+        if (n >= 1 && n <= PRODUCT_MODE_SEQUENCE.length) {
           e.preventDefault();
           const mode = PRODUCT_MODE_SEQUENCE[n - 1];
           void useSettings
@@ -557,36 +626,46 @@ function AppInner() {
         </>
       ) : (
         <>
-          {/* Keep chrome above fixed AiPanel overlays (Composer, Browser). Modals use z-[110]+ */}
-          <div className="relative z-[100] flex shrink-0 flex-col">
+          <div className="relative z-[100] shrink-0">
             <MenuBar />
-            <TopBar />
           </div>
           <div className="flex min-h-0 flex-1">
             {!sidebarCollapsed && (
               <>
                 <div
                   className="workspace-panel shrink-0 overflow-hidden border-r border-border-soft"
-                  style={{ width: sidebarWidthPx }}
+                  style={{ width: layoutSidebarWidthPx }}
                 >
                   <Sidebar />
                 </div>
                 <PanelResizeHandle
                   orientation="col"
-                  onDrag={(dx) => {
-                    const cur = useSettings.getState().settings.sidebarWidthPx;
-                    void useSettings.getState().update({
-                      sidebarWidthPx: Math.min(520, Math.max(180, cur + dx)),
+                  onDrag={(_dx, totalDx) => {
+                    useSettings.getState().patchLocal({
+                      sidebarWidthPx: clampNumber(
+                        layoutSidebarWidthPx + totalDx,
+                        SIDEBAR_MIN_WIDTH,
+                        SIDEBAR_MAX_WIDTH,
+                      ),
                     });
+                  }}
+                  onDragEnd={() => {
+                    const w = useSettings.getState().settings.sidebarWidthPx;
+                    void useSettings.getState().update({ sidebarWidthPx: w });
                   }}
                 />
               </>
             )}
-            <div className="flex min-w-0 flex-1 flex-col">
-              <EditorTabs />
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg">
+              {tabs.length > 0 && (
+                <div className="chrome-tabstrip h-9 min-h-9 shrink-0 overflow-hidden ds-transition">
+                  <EditorTabs />
+                </div>
+              )}
               <div
                 className={
-                  'min-h-0 flex-1' + (editorSplit && tabs.length > 0 ? ' flex flex-row' : '')
+                  'relative min-h-0 min-w-0 flex-1 overflow-hidden' +
+                  (editorSplit && tabs.length > 0 ? ' flex flex-row' : '')
                 }
               >
                 {tabs.length === 0 ? (
@@ -603,21 +682,44 @@ function AppInner() {
                 ) : (
                   <MonacoEditorPane />
                 )}
+                {projectLoading || sessionLoading ? (
+                  <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-bg-deep/55 backdrop-blur-[2px]">
+                    <div className="flex items-center gap-2 rounded-lg border border-border-soft bg-bg-elevated/95 px-4 py-2 text-xs font-medium text-fg shadow-float">
+                      <span className="loading-spinner" aria-hidden />
+                      <span>{projectLoadingLabel ?? (sessionLoading ? 'Restoring workspace...' : 'Working...')}</span>
+                    </div>
+                  </div>
+                ) : null}
               </div>
               <BottomPanel />
             </div>
             <PanelResizeHandle
               orientation="col"
-              onDrag={(dx) => {
-                const cur = useSettings.getState().settings.aiPanelWidthPx;
-                void useSettings.getState().update({
-                  aiPanelWidthPx: Math.min(900, Math.max(280, cur - dx)),
+              onDrag={(_dx, totalDx) => {
+                const state = useSettings.getState().settings;
+                const sidebarWidth = sidebarCollapsed
+                  ? 0
+                  : clampNumber(
+                      state.sidebarWidthPx,
+                      SIDEBAR_MIN_WIDTH,
+                      SIDEBAR_MAX_WIDTH,
+                    );
+                useSettings.getState().patchLocal({
+                  aiPanelWidthPx: getClampedAiPanelWidth(
+                    layoutAiPanelWidthPx - totalDx,
+                    window.innerWidth,
+                    sidebarWidth,
+                  ),
                 });
+              }}
+              onDragEnd={() => {
+                const w = useSettings.getState().settings.aiPanelWidthPx;
+                void useSettings.getState().update({ aiPanelWidthPx: w });
               }}
             />
             <div
-              className="workspace-panel min-h-0 min-w-0 shrink-0 overflow-x-auto overflow-y-hidden border-l border-border-soft"
-              style={{ width: aiPanelWidthPx }}
+              className="workspace-panel relative isolate z-[1] min-h-0 min-w-0 shrink-0 overflow-x-hidden overflow-y-hidden border-l border-border-soft"
+              style={{ width: layoutAiPanelWidthPx }}
             >
               <AiPanel />
             </div>
@@ -625,23 +727,11 @@ function AppInner() {
         </>
       )}
 
-      <RoadmapModal />
-      <StatsModal />
-      <BenchmarkModal />
-      <AccountModal />
-      <SettingsModal />
-      <ModelPicker />
-      <QuickOpen />
-      <RulesModal />
-      <TasksModal />
-      <ToolApprovalModal />
-      <CommandPalette />
-      <FindReplaceDialog />
       <ToastContainer />
-      {crashDetected && <CrashRecoveryModal />}
-      {pendingDiff && <DiffPreview />}
-      {pendingMultiDiff && pendingMultiDiff.length > 0 && <MultiDiffPreview />}
-      {showWelcomeTour && <WelcomeTour onDone={() => setShowWelcomeTour(false)} />}
+      <LazyModalLayer
+        showWelcomeTour={showWelcomeTour}
+        onWelcomeTourDone={() => setShowWelcomeTour(false)}
+      />
     </div>
   );
 }
@@ -698,111 +788,6 @@ function ZenModeExitBar() {
           Alt+Shift+Z
         </kbd>
       </span>
-    </div>
-  );
-}
-
-function TopBar() {
-  const projectRoot = useApp((s) => s.projectRoot);
-  const pickAndOpenProjectFolder = useApp((s) => s.pickAndOpenProjectFolder);
-  const setShowSettings = useApp((s) => s.setShowSettings);
-  const setShowModelPicker = useApp((s) => s.setShowModelPicker);
-  const setShowAccountModal = useApp((s) => s.setShowAccountModal);
-  const toggleSidebar = useApp((s) => s.toggleSidebar);
-  const accountEmail = useAccountSession((s) => s.email);
-  const resolvedTheme = useResolvedTheme();
-  const updateSettings = useSettings((s) => s.update);
-
-  const toggleAppearance = () => {
-    void updateSettings({ theme: resolvedTheme === 'light' ? 'dark' : 'light' });
-  };
-
-  const openFolder = () => {
-    void pickAndOpenProjectFolder();
-  };
-
-  return (
-    <div className="chrome-menubar relative flex h-10 shrink-0 items-center justify-between gap-3 px-3 ds-transition">
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <button
-          type="button"
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-fg-muted transition-colors duration-layout hover:bg-bg-hover hover:text-fg"
-          onClick={toggleSidebar}
-          title="Toggle sidebar (Ctrl/Cmd+B)"
-          aria-label="Toggle sidebar"
-        >
-          <span className="text-sm leading-none" aria-hidden>
-            ☰
-          </span>
-        </button>
-        <div className="flex shrink-0 items-center gap-2 border-r border-border-soft pr-3">
-          <span className="brand-mark-icon-wrap">
-            <img src={logoIcon} alt="" className="h-6 w-6 select-none" draggable={false} />
-          </span>
-          <span className="brand-wordmark whitespace-nowrap tracking-tight">Router Studio</span>
-        </div>
-        <div className="min-w-0 flex-1 pl-1">
-          <span
-            className="block truncate font-mono text-[11px] leading-snug text-fg-subtle"
-            title={projectRoot || undefined}
-          >
-            {projectRoot ? projectRoot : 'No folder open'}
-          </span>
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        <button
-          type="button"
-          className="rounded-md border border-border-soft bg-bg-soft px-2.5 py-1.5 text-xs font-medium text-fg-muted shadow-sm transition-colors duration-layout hover:border-border hover:bg-bg-hover hover:text-fg"
-          onClick={openFolder}
-          title="Open Folder (Ctrl+O)"
-        >
-          Open Folder
-        </button>
-        <button
-          type="button"
-          className="rounded-md border border-border-soft bg-bg-soft px-2.5 py-1.5 text-xs font-medium text-fg-muted shadow-sm transition-colors duration-layout hover:border-border hover:bg-bg-hover hover:text-fg"
-          onClick={() => setShowModelPicker(true)}
-          title="Choose model (Ctrl/Cmd+M)"
-        >
-          Models
-        </button>
-        <button
-          type="button"
-          className="rounded-md border border-border-soft bg-bg-soft px-2.5 py-1.5 text-xs font-medium text-fg-muted shadow-sm transition-colors duration-layout hover:border-border hover:bg-bg-hover hover:text-fg"
-          onClick={() => setShowAccountModal(true)}
-          title="Router Studio account — sign in to sync encrypted settings"
-        >
-          {accountEmail ? (
-            <span className="max-w-[9rem] truncate font-mono text-[10px]" title={accountEmail}>
-              {accountEmail}
-            </span>
-          ) : (
-            'Account'
-          )}
-        </button>
-        <button
-          type="button"
-          className="rounded-md border border-border-soft bg-bg-soft px-2 py-1.5 text-sm leading-none text-fg-muted shadow-sm transition-colors duration-layout hover:border-border hover:bg-bg-hover hover:text-fg"
-          onClick={toggleAppearance}
-          title={
-            resolvedTheme === 'light'
-              ? 'Switch to dark theme (also in Settings → Appearance)'
-              : 'Switch to light theme (also in Settings → Appearance)'
-          }
-          aria-label={resolvedTheme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
-        >
-          {resolvedTheme === 'light' ? '🌙' : '☀️'}
-        </button>
-        <button
-          type="button"
-          className="rounded-md border border-border-soft bg-bg-soft px-2.5 py-1.5 text-xs font-medium text-fg-muted shadow-sm transition-colors duration-layout hover:border-border hover:bg-bg-hover hover:text-fg"
-          onClick={() => setShowSettings(true)}
-          title="Settings (Ctrl+,)"
-        >
-          Settings
-        </button>
-      </div>
     </div>
   );
 }

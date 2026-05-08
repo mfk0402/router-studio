@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type {
   WorkspaceCheckpointPayload,
   WorkspaceCheckpointSummary,
@@ -16,6 +17,51 @@ function normalizeRel(p: string): string {
   return String(p ?? '')
     .replace(/\\/g, '/')
     .replace(/^\/+/, '');
+}
+
+async function collectFilePaths(
+  projectRoot: string,
+  relativePath: string,
+  maxFiles = 80,
+): Promise<string[]> {
+  const rootResolved = path.resolve(projectRoot);
+  const rootWithSep = rootResolved.endsWith(path.sep) ? rootResolved : rootResolved + path.sep;
+  const withinRoot = (abs: string) => abs === rootResolved || abs.startsWith(rootWithSep);
+  const rel = normalizeRel(relativePath);
+  if (!rel || rel.includes('..')) return [];
+  const abs = path.resolve(rootResolved, rel);
+  if (!withinRoot(abs)) return [];
+  try {
+    const st = await fs.stat(abs);
+    if (st.isFile()) return [rel];
+    if (!st.isDirectory()) return [];
+  } catch {
+    return [];
+  }
+
+  const out: string[] = [];
+  async function walk(dirAbs: string): Promise<void> {
+    if (out.length >= maxFiles) return;
+    let entries: Array<{ name: string; isDirectory: () => boolean; isFile: () => boolean }>;
+    try {
+      entries = await fs.readdir(dirAbs, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (out.length >= maxFiles) return;
+      const childAbs = path.join(dirAbs, entry.name);
+      const childRel = path.relative(rootResolved, childAbs).replace(/\\/g, '/');
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'out') continue;
+        await walk(childAbs);
+      } else if (entry.isFile()) {
+        out.push(childRel);
+      }
+    }
+  }
+  await walk(abs);
+  return out;
 }
 
 function parsePayload(raw: string): WorkspaceCheckpointPayload | null {
@@ -89,6 +135,56 @@ export async function readCheckpoint(id: string): Promise<WorkspaceCheckpointPay
   } catch {
     return null;
   }
+}
+
+export async function saveWorkspaceCheckpoint(
+  projectRoot: string,
+  label: string,
+  relativePaths: string[],
+): Promise<WorkspaceCheckpointSummary | null> {
+  const rootResolved = path.resolve(projectRoot);
+  const rootWithSep = rootResolved.endsWith(path.sep) ? rootResolved : rootResolved + path.sep;
+  const withinRoot = (abs: string) => abs === rootResolved || abs.startsWith(rootWithSep);
+  const unique = new Set<string>();
+  for (const raw of relativePaths) {
+    const collected = await collectFilePaths(rootResolved, raw);
+    for (const rel of collected) unique.add(rel);
+  }
+
+  const files: Array<{ path: string; content: string }> = [];
+  for (const rel of unique) {
+    const abs = path.resolve(rootResolved, rel);
+    if (!withinRoot(abs)) continue;
+    try {
+      const st = await fs.stat(abs);
+      if (!st.isFile() || st.size > 2_000_000) continue;
+      const content = await fs.readFile(abs, 'utf8');
+      if (content.includes('\0')) continue;
+      files.push({ path: rel, content });
+    } catch {
+      continue;
+    }
+  }
+  if (files.length === 0) return null;
+
+  const dir = checkpointsUserDataDir();
+  await fs.mkdir(dir, { recursive: true });
+  const id = randomUUID();
+  const payload: WorkspaceCheckpointPayload = {
+    id,
+    label: label.trim() || 'Agent checkpoint',
+    createdAt: Date.now(),
+    projectRoot: rootResolved,
+    files,
+  };
+  await fs.writeFile(path.join(dir, `${id}.json`), JSON.stringify(payload, null, 2), 'utf8');
+  return {
+    id,
+    label: payload.label,
+    createdAt: payload.createdAt,
+    fileCount: files.length,
+    capturedRoot: rootResolved,
+  };
 }
 
 /** Removes the checkpoint JSON from userData. Returns ok:false if id is invalid or file missing. */

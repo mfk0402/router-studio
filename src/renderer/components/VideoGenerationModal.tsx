@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AppSettings,
   NormalizedModel,
   OpenRouterVideoSubmitRequest,
+  OpenRouterVideoAudioPreference,
 } from '../../shared/types';
 import { resolveVideoJobModelId } from '../lib/autoModelRouting';
 import { toast } from './ToastContainer';
+import { useSettings } from '../store/settingsStore';
 
 const ASPECT_OPTIONS = ['', '16:9', '9:16', '1:1', '4:3', '3:4', '21:9', '9:21'] as const;
 const RES_OPTIONS = ['', '480p', '720p', '1080p', '1K', '2K', '4K'] as const;
@@ -29,6 +31,8 @@ export interface VideoGenerationModalProps {
   models: NormalizedModel[];
   freeModeEnabled: boolean;
   initialPrompt: string;
+  /** Up to two composer image data URLs → pre-fill first / last frame when the modal opens. */
+  composerSeedImageUrls?: string[];
 }
 
 export default function VideoGenerationModal({
@@ -40,7 +44,9 @@ export default function VideoGenerationModal({
   models,
   freeModeEnabled,
   initialPrompt,
+  composerSeedImageUrls,
 }: VideoGenerationModalProps) {
+  const updateSettings = useSettings((s) => s.update);
   const videoModels = useMemo(
     () =>
       models
@@ -58,10 +64,17 @@ export default function VideoGenerationModal({
   const [resolution, setResolution] = useState('');
   const [durationDraft, setDurationDraft] = useState('');
   const [seedDraft, setSeedDraft] = useState('');
-  const [audioMode, setAudioMode] = useState<'default' | 'on' | 'off'>('default');
+  const [audioMode, setAudioMode] = useState<OpenRouterVideoAudioPreference>('auto');
   const [firstFrameUrl, setFirstFrameUrl] = useState('');
   const [lastFrameUrl, setLastFrameUrl] = useState('');
   const [referenceUrl, setReferenceUrl] = useState('');
+
+  /** Latest composer image URLs — read inside the open-reset effect so attachment changes mid-session do not wipe edits. */
+  const composerSeedRef = useRef<string[]>([]);
+  composerSeedRef.current = (composerSeedImageUrls ?? [])
+    .map((u) => (u ?? '').trim())
+    .filter(Boolean)
+    .slice(0, 2);
 
   useEffect(() => {
     if (!open) return;
@@ -71,11 +84,19 @@ export default function VideoGenerationModal({
     setResolution(settings.openRouterVideoResolution ?? '');
     setDurationDraft('');
     setSeedDraft('');
-    setAudioMode('default');
-    setFirstFrameUrl('');
-    setLastFrameUrl('');
+    setAudioMode(settings.openRouterVideoAudio);
+    const seeds = composerSeedRef.current;
+    setFirstFrameUrl(seeds[0] ?? '');
+    setLastFrameUrl(seeds[1] ?? '');
     setReferenceUrl('');
-  }, [open, initialPrompt, settings.openRouterVideoModel, settings.openRouterVideoAspectRatio, settings.openRouterVideoResolution]);
+  }, [
+    open,
+    initialPrompt,
+    settings.openRouterVideoModel,
+    settings.openRouterVideoAspectRatio,
+    settings.openRouterVideoResolution,
+    settings.openRouterVideoAudio,
+  ]);
 
   if (!open) return null;
 
@@ -146,6 +167,7 @@ export default function VideoGenerationModal({
     }
     const req = buildRequest();
     if (!(req.prompt ?? '').trim()) return;
+    void updateSettings({ openRouterVideoAudio: audioMode });
     onGenerate(req);
   };
 
@@ -163,7 +185,7 @@ export default function VideoGenerationModal({
 
   return (
     <div
-      className="modal-scrim fixed inset-0 z-[110] flex items-center justify-center p-4 ds-transition"
+      className="modal-scrim fixed inset-0 z-[201000] flex items-center justify-center p-4 ds-transition"
       role="dialog"
       aria-modal="true"
       aria-labelledby="video-gen-title"
@@ -235,13 +257,21 @@ export default function VideoGenerationModal({
                 <label className="mb-1 block text-xs font-medium text-fg-muted">Audio</label>
                 <select
                   value={audioMode}
-                  onChange={(e) => setAudioMode(e.target.value as typeof audioMode)}
+                  onChange={(e) => setAudioMode(e.target.value as OpenRouterVideoAudioPreference)}
                   className="w-full rounded-md border border-border bg-bg px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
                 >
-                  <option value="default">Default (model / API)</option>
-                  <option value="on">With audio</option>
-                  <option value="off">Silent video</option>
+                  <option value="auto">
+                    Auto — omit generate_audio (provider default; many models add synced sound)
+                  </option>
+                  <option value="on">With synthesized audio — send generate_audio=true</option>
+                  <option value="off">Silent — send generate_audio=false</option>
                 </select>
+                <p className="mt-1 text-[10px] leading-snug text-fg-subtle">
+                  Use <strong className="text-fg-muted">Silent</strong> when you want no music, speech, or
+                  SFX. Also set in{' '}
+                  <strong className="text-fg-muted">Settings → Models → Video generation</strong> to apply{' '}
+                  <code className="text-[9px]">/video</code> slash jobs.
+                </p>
               </div>
             </div>
 
@@ -302,9 +332,12 @@ export default function VideoGenerationModal({
             <div className="rounded-md border border-border-soft bg-bg-soft/50 p-3">
               <div className="mb-2 text-xs font-semibold text-fg-muted">Image-to-video (optional)</div>
               <p className="mb-2 text-[10px] leading-snug text-fg-subtle">
-                First/last frame use OpenRouter <code className="text-[9px]">frame_images</code> (HTTPS
-                URLs or paste a <code className="text-[9px]">data:image/…</code> from Pick). If both frame
-                fields are set, reference image below is ignored.
+                First/last frame map to OpenRouter{' '}
+                <code className="text-[9px]">frame_images</code> (HTTPS URLs or paste a{' '}
+                <code className="text-[9px]">data:image/…</code> from Pick). If you attached one or two
+                images in the composer before opening Generate video, the first matching shots are prefilled
+                here (edit or replace as needed). If both frame fields are set, the reference image below is
+                ignored.
               </p>
               <div className="space-y-2">
                 <div>

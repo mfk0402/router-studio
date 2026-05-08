@@ -59,3 +59,44 @@ export function buildTaskReceiptMarkdown(opts: {
   lines.push(`*Receipt generated locally by Router Studio — verify paths and commands before sharing.*`);
   return lines.join('\n');
 }
+
+/** Structured JSON audit aligned with Markdown receipts — safe previews only. */
+export function buildToolAuditExportPayload(opts: {
+  chat: ChatMsg[];
+  executions: Iterable<ToolExecutionEvent>;
+  projectRoot: string | null;
+  maxChatLines?: number;
+}): Record<string, unknown> {
+  const tail = opts.chat.slice(-(opts.maxChatLines ?? 12));
+  const execs = [...opts.executions];
+
+  const messages = tail.map((m) => ({
+    role: m.role,
+    modelUsed: m.role === 'assistant' ? (m.modelUsed ?? null) : undefined,
+    contentPreview:
+      m.role === 'user'
+        ? (m.displayContent ?? m.content).slice(0, 4000)
+        : m.content.slice(0, 8000),
+  }));
+
+  const runs = execs.map((e) => ({
+    requestId: e.requestId,
+    toolCallId: e.toolCallId,
+    toolName: e.toolName,
+    status: e.status,
+    durationMs: e.durationMs ?? null,
+    args: e.args,
+    resultPreview: (e.result ?? '').slice(0, 6000),
+    errorPreview: (e.error ?? '').slice(0, 1200),
+  }));
+
+  return {
+    schema: 'router-studio.tool-audit.v1',
+    exportedAt: new Date().toISOString(),
+    projectRoot: opts.projectRoot,
+    messageCount: tail.length,
+    chatTail: messages,
+    toolRuns: runs,
+    toolRunCount: runs.length,
+  };
+}

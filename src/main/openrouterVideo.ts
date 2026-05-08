@@ -52,6 +52,31 @@ export interface VideoPollResult {
   error?: string;
 }
 
+function buildVideosRequestBody(req: OpenRouterVideoSubmitRequest): Record<string, unknown> {
+  const model = req.model.trim();
+  const payload: Record<string, unknown> = {
+    model,
+    prompt: req.prompt,
+  };
+  if (req.aspect_ratio) payload.aspect_ratio = req.aspect_ratio;
+  if (req.duration != null) payload.duration = req.duration;
+  if (req.resolution) payload.resolution = req.resolution;
+  if (req.seed != null) payload.seed = req.seed;
+
+  const frames = req.frame_images ?? [];
+  if (frames.length > 0) payload.frame_images = frames;
+
+  const refs = req.input_references ?? [];
+  if (refs.length > 0) payload.input_references = refs;
+
+  // Always include literal booleans (`false must not vanish`).
+  if (typeof req.generate_audio === 'boolean') {
+    payload.generate_audio = req.generate_audio;
+  }
+
+  return payload;
+}
+
 export async function submitVideoJob(
   apiKey: string,
   req: OpenRouterVideoSubmitRequest,
@@ -60,21 +85,7 @@ export async function submitVideoJob(
   const res = await fetch(`${API_BASE}/videos`, {
     method: 'POST',
     headers: authHeaders(apiKey),
-    body: JSON.stringify({
-      model: req.model,
-      prompt: req.prompt,
-      ...(req.aspect_ratio ? { aspect_ratio: req.aspect_ratio } : {}),
-      ...(req.duration != null ? { duration: req.duration } : {}),
-      ...(req.resolution ? { resolution: req.resolution } : {}),
-      ...(req.frame_images && req.frame_images.length > 0 ? { frame_images: req.frame_images } : {}),
-      ...(req.input_references && req.input_references.length > 0
-        ? { input_references: req.input_references }
-        : {}),
-      ...(req.generate_audio === true || req.generate_audio === false
-        ? { generate_audio: req.generate_audio }
-        : {}),
-      ...(req.seed != null ? { seed: req.seed } : {}),
-    }),
+    body: JSON.stringify(buildVideosRequestBody(req)),
   });
   if (!res.ok) {
     const txt = await res.text();

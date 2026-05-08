@@ -3,43 +3,41 @@
 @tailwind utilities;
 
 /**
- * Router Studio — dark mode tokens align with `router_studio_design_system.md` (v1.0): §4 Color,
- * §8 Shadow/Glow, §15 tabs (cyan underline). Light mode stays legacy-soft parity.
+ * Dark mode — “midnight workbench” aligned with README preview art: deep navy surfaces,
+ * VS Code–style contrast, electric blue primary (active tab, buttons, links).
  */
 html.dark {
   color-scheme: dark;
-  /* §4 surfaces — bg #060B12 · surface #0B1220 · surface-2 #111827 · surface-3 #161C2A */
-  --color-bg-default: 6 11 18;
-  --color-bg-soft: 11 18 32;
-  --color-bg-elevated: 17 24 39;
-  --color-bg-hover: 22 28 42;
-  --color-bg-deep: 6 11 18;
-  --color-border-default: 38 48 67;
-  --color-border-soft: 55 62 78;
-  --color-fg-default: 230 232 235;
-  --color-fg-muted: 167 176 192;
-  --color-fg-subtle: 116 128 148;
-  --color-accent-default: 99 102 255;
-  --color-accent-muted: 79 70 229;
+  --color-bg-default: 11 14 20;
+  --color-bg-soft: 13 17 23;
+  --color-bg-elevated: 22 27 34;
+  --color-bg-hover: 33 38 48;
+  --color-bg-deep: 1 4 9;
+  --color-border-default: 48 54 61;
+  --color-border-soft: 55 60 67;
+  --color-fg-default: 230 237 243;
+  --color-fg-muted: 139 154 170;
+  --color-fg-subtle: 110 119 129;
+  --color-accent-default: 59 130 246;
+  --color-accent-muted: 37 99 235;
   --color-accent-fg: 255 255 255;
-  /** §4 electric cyan #22D3EE — links, editor tab indicator. */
-  --color-accent-electric: 34 211 238;
-  /** §4 info cyan #06B6D4 */
-  --color-cyan: 6 182 212;
-  --color-violet: 168 85 247;
-  --color-success: 34 197 94;
-  --color-warn: 245 158 11;
-  --color-danger: 239 68 68;
+  /** Brighter blue for tab accents and highlights (preview art). */
+  --color-accent-electric: 96 165 250;
+  --color-cyan: 34 211 238;
+  --color-violet: 167 139 250;
+  --color-success: 46 160 67;
+  --color-warn: 210 153 34;
+  --color-danger: 248 81 73;
 
-  --ds-gradient-brand: linear-gradient(135deg, #6366ff 0%, #22d3ee 50%, #a855f7 100%);
-  --ds-gradient-primary: linear-gradient(135deg, #4f46e5 0%, #6366ff 45%, #22d3ee 100%);
-  --ds-gradient-surface: linear-gradient(180deg, rgba(17, 24, 39, 0.92), rgba(11, 18, 32, 0.96));
+  --ds-gradient-brand: linear-gradient(135deg, #2563eb 0%, #38bdf8 45%, #818cf8 100%);
+  --ds-gradient-primary: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 50%, #60a5fa 100%);
+  --ds-gradient-surface: linear-gradient(180deg, rgba(22, 27, 34, 0.98), rgba(13, 17, 23, 0.99));
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.28);
   --shadow-md: 0 8px 24px rgb(0 0 0 / 0.3);
   --shadow-lg: 0 18px 48px rgb(0 0 0 / 0.36);
   --shadow-xl: 0 28px 80px rgb(0 0 0 / 0.45);
-  --glow-primary: 0 0 0 1px rgb(99 102 255 / 0.35), 0 0 24px rgb(99 102 255 / 0.24);
-  --glow-cyan: 0 0 0 1px rgb(34 211 238 / 0.3), 0 0 22px rgb(34 211 238 / 0.18);
+  --glow-primary: 0 0 0 1px rgb(59 130 246 / 0.35), 0 0 24px rgb(59 130 246 / 0.22);
+  --glow-cyan: 0 0 0 1px rgb(96 165 250 / 0.28), 0 0 22px rgb(96 165 250 / 0.15);
   --glow-danger: 0 0 0 1px rgb(239 68 68 / 0.35), 0 0 20px rgb(239 68 68 / 0.18);
 
   --shadow-chrome: 0 1px 0 rgb(255 255 255 / 0.06) inset;
@@ -50,20 +48,20 @@ html.dark {
   --shadow-card: var(--shadow-md);
   --shadow-card-hover: var(--shadow-lg);
   --ring-subtle: rgb(255 255 255 / 0.08);
-  --scrollbar-thumb: 38 48 67;
-  --scrollbar-thumb-hover: 56 68 90;
-  --selection-bg: 99 102 255;
+  --scrollbar-thumb: 48 54 61;
+  --scrollbar-thumb-hover: 72 79 88;
+  --selection-bg: 59 130 246;
   --selection-fg: 255 255 255;
-  --focus-ring: 99 102 255;
-  --markdown-fg: 230 232 235;
+  --focus-ring: 59 130 246;
+  --markdown-fg: 230 237 243;
   --markdown-muted: 167 176 192;
-  --markdown-link: 34 211 238;
-  --markdown-code-bg: 17 24 39;
-  --markdown-code-border: 38 48 67;
-  --markdown-pre-bg: 11 18 32;
-  --markdown-table-border: 38 48 67;
-  --markdown-blockquote-border: 38 48 67;
-  --modal-scrim: rgb(6 11 18 / 0.78);
+  --markdown-link: 96 165 250;
+  --markdown-code-bg: 22 27 34;
+  --markdown-code-border: 48 54 61;
+  --markdown-pre-bg: 13 17 23;
+  --markdown-table-border: 48 54 61;
+  --markdown-blockquote-border: 48 54 61;
+  --modal-scrim: rgb(11 14 20 / 0.82);
 }
 
 html.light {
@@ -109,11 +107,28 @@ html.light {
 }
 
 html,
-body,
-#root {
+body {
   height: 100%;
   margin: 0;
+}
+
+#root {
+  height: 100%;
   overflow: hidden;
+  --rs-space-1: 0.25rem;
+  --rs-space-2: 0.5rem;
+  --rs-space-3: 0.75rem;
+  --rs-space-4: 1rem;
+  --rs-radius-md: 10px;
+  --rs-radius-lg: 14px;
+}
+
+#portal-root {
+  position: fixed;
+  inset: 0;
+  z-index: 199000;
+  pointer-events: none;
+  overflow: visible;
 }
 
 body {
@@ -156,10 +171,10 @@ body {
 html.dark .brand-wordmark {
   background: linear-gradient(
     108deg,
-    rgb(224 231 255) 0%,
-    rgb(165 180 252) 22%,
-    rgb(34 211 238) 72%,
-    rgb(196 181 253) 100%
+    rgb(241 245 249) 0%,
+    rgb(147 197 253) 35%,
+    rgb(96 165 250) 72%,
+    rgb(199 210 254) 100%
   );
   -webkit-background-clip: text;
   background-clip: text;
@@ -235,9 +250,10 @@ html.light .brand-mark-icon-wrap {
 
 html.dark .welcome-hero {
   background:
-    radial-gradient(ellipse 120% 80% at 50% -35%, rgb(99 102 255 / 0.14), transparent 55%),
-    radial-gradient(ellipse 70% 50% at 90% 0%, rgb(34 211 238 / 0.06), transparent 45%),
+    radial-gradient(ellipse 120% 80% at 50% -35%, rgb(59 130 246 / 0.12), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 90% 0%, rgb(96 165 250 / 0.08), transparent 45%),
     linear-gradient(180deg, rgb(var(--color-bg-soft) / 0.92) 0%, rgb(var(--color-bg-default)) 48%);
+  scroll-padding-bottom: 2rem;
 }
 
 .modal-scrim {
@@ -375,6 +391,10 @@ textarea:focus:not(:focus-visible) {
   color: #8ea0bf;
 }
 
+html.dark .section-label {
+  color: #8b949e;
+}
+
 /**
  * §11 Prompt input — elevated composer field (`router_studio_design_system.md`).
  */
@@ -382,8 +402,8 @@ textarea:focus:not(:focus-visible) {
   min-height: 92px;
   border-radius: 16px;
   padding: 14px;
-  background: linear-gradient(180deg, rgba(17, 24, 39, 0.96), rgba(11, 18, 32, 0.98));
-  border: 1px solid rgba(99, 102, 255, 0.22);
+  background: linear-gradient(180deg, rgba(22, 27, 34, 0.98), rgba(13, 17, 23, 0.99));
+  border: 1px solid rgba(59, 130, 246, 0.22);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.04),
     var(--shadow-md);
@@ -399,20 +419,20 @@ html.light .prompt-input-ds {
 
 .prompt-input-ds:focus {
   outline: none;
-  border-color: rgba(99, 102, 255, 0.82);
+  border-color: rgba(59, 130, 246, 0.75);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.04),
-    0 0 0 3px rgb(99 102 255 / 0.18),
+    0 0 0 3px rgb(59 130 246 / 0.18),
     var(--shadow-md);
 }
 
 textarea.prompt-input-ds:focus-visible {
   outline: none;
   outline-offset: 0;
-  border-color: rgba(99, 102, 255, 0.82);
+  border-color: rgba(59, 130, 246, 0.75);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.04),
-    0 0 0 3px rgb(99 102 255 / 0.18),
+    0 0 0 3px rgb(59 130 246 / 0.18),
     var(--shadow-md);
 }
 
@@ -466,15 +486,11 @@ html.light .prompt-input-ds:focus-visible {
 
 /** Title bar strip under system chrome */
 .chrome-menubar {
-  background: linear-gradient(
-    180deg,
-    rgb(var(--color-bg-elevated) / 0.94) 0%,
-    rgb(var(--color-bg-soft) / 0.82) 100%
-  );
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-bottom: 1px solid rgb(var(--color-border-default) / 0.45);
-  box-shadow: var(--shadow-chrome);
+  background: rgb(var(--color-bg-soft));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: 1px solid rgb(var(--color-border-default) / 0.6);
+  box-shadow: none;
 }
 
 .chrome-dropdown {
@@ -490,61 +506,135 @@ html.light .prompt-input-ds:focus-visible {
   box-shadow: var(--shadow-float);
 }
 
-.chrome-tabstrip {
+.chrome-dropdown--portal {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgb(var(--color-bg-elevated) / 0.97);
+  border-radius: 10px;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  box-shadow: var(--shadow-float), 0 0 0 1px rgb(255 255 255 / 0.05) inset;
+}
+
+.bottom-panel-header {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.bottom-panel-model-meta {
+  max-width: min(280px, 34cqw);
+}
+
+@container (max-width: 560px) {
+  .bottom-panel-model-meta {
+    display: none;
+  }
+}
+
+.bottom-panel-tabs-scroll {
+  scrollbar-width: thin;
+}
+.bottom-panel-tabs-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+.bottom-panel-tabs-scroll::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+}
+
+.resize-handle-row {
+  height: 5px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  transition: background-color 0.15s ease;
+}
+.resize-handle-row:hover,
+.resize-handle-row:active {
+  background: rgb(var(--color-accent-default) / 0.08);
+}
+.resize-handle-row::after {
+  content: '';
+  display: block;
+  width: min(100%, 160px);
+  height: 2px;
+  border-radius: 9999px;
+  background: rgb(var(--color-border-soft) / 0.75);
+}
+.resize-handle-row:hover::after {
+  background: rgb(var(--color-accent-default) / 0.45);
+  box-shadow: 0 0 10px rgb(var(--color-accent-default) / 0.18);
+}
+
+.ai-quick-action-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--rs-radius-md);
+  border: 1px solid rgb(var(--color-border-default) / 0.45);
   background: linear-gradient(
-    180deg,
-    rgb(var(--color-bg-elevated) / 0.9) 0%,
-    rgb(var(--color-bg-soft) / 0.62) 100%
+    145deg,
+    rgb(var(--color-bg-elevated) / 0.75) 0%,
+    rgb(var(--color-bg-soft) / 0.45) 100%
   );
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgb(var(--color-border-default) / 0.38);
-  box-shadow: var(--shadow-chrome);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset;
+  text-align: left;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.ai-quick-action-card:hover {
+  border-color: rgb(var(--color-accent-default) / 0.35);
+  box-shadow: 0 0 0 1px rgb(var(--color-accent-default) / 0.12);
+}
+
+.chrome-tabstrip {
+  background: rgb(var(--color-bg-soft));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: 1px solid rgb(var(--color-border-default) / 0.55);
+  box-shadow: none;
 }
 
 .ai-chrome-header {
-  background: linear-gradient(
-    180deg,
-    rgb(var(--color-bg-elevated) / 0.92) 0%,
-    rgb(var(--color-bg-soft) / 0.72) 100%
-  );
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgb(var(--color-border-default) / 0.38);
-  box-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset;
+  background: rgb(var(--color-bg-soft));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: 1px solid rgb(var(--color-border-default) / 0.55);
+  box-shadow: none;
 }
 
 .ai-chrome-band {
-  background: rgb(var(--color-bg-soft) / 0.55);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgb(var(--color-border-default) / 0.28);
+  background: rgb(var(--color-bg-soft));
+  border-bottom: 1px solid rgb(var(--color-border-default) / 0.45);
 }
 
 .ai-chrome-footer {
-  background: rgb(var(--color-bg-soft) / 0.55);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-top: 1px solid rgb(var(--color-border-default) / 0.28);
+  background: rgb(var(--color-bg-soft));
+  border-top: 1px solid rgb(var(--color-border-default) / 0.45);
 }
 
 .workspace-panel {
-  background: linear-gradient(
-    180deg,
-    rgb(var(--color-bg-soft) / 0.96) 0%,
-    rgb(var(--color-bg-default) / 0.88) 100%
-  );
+  background: rgb(var(--color-bg-soft));
 }
 
 .panel-chrome {
-  background: linear-gradient(
-    0deg,
-    rgb(var(--color-bg-elevated) / 0.94) 0%,
-    rgb(var(--color-bg-soft) / 0.8) 100%
-  );
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-top: 1px solid rgb(var(--color-border-default) / 0.4);
+  background: rgb(var(--color-bg-soft));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-top: 1px solid rgb(var(--color-border-default) / 0.55);
+}
+
+/** VS Code–style activity bar (dark) */
+.activity-bar {
+  width: 48px;
+  flex-shrink: 0;
+  background: rgb(var(--color-bg-deep));
+  border-right: 1px solid rgb(var(--color-border-default) / 0.5);
 }
 
 .ds-transition {
@@ -584,4 +674,21 @@ html.light .prompt-input-ds:focus-visible {
 }
 .video-job-dot-delay-2 {
   animation-delay: 0.4s;
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+  border: 2px solid rgb(var(--color-accent-default) / 0.35);
+  border-top-color: rgb(var(--color-accent-default));
+  border-radius: 9999px;
+  animation: loading-spinner-rotate 0.8s linear infinite;
+}
+
+@keyframes loading-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
 }

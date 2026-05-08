@@ -31,9 +31,36 @@ import { redactSecrets } from '../../shared/redactSecrets.js';
 import * as toolAudit from '../toolAudit.js';
 import { recordToolRun } from '../localStats.js';
 import * as codeIndex from '../codeIndex.js';
+import * as tasksApi from '../tasks.js';
+import * as checkpointsApi from '../checkpointsApi.js';
 import { isToolAllowedInProductMode } from '../../shared/productMode.js';
 import { detectSuspiciousContent } from '../security/promptInjectionGuard.js';
-import { scoreShellCommand } from './shell/runShell.js';
+import { scoreShellCommand } from './shell/shellRisk.js';
+
+/**
+ * Read-only / workspace-introspection tools: heuristic injection matches are nearly always
+ * false positives (SECURITY.md, AI docs, phrases like “override the system prompt”).
+ * Skipping keeps trust UX usable; the assistant system prompt already warns about file content.
+ */
+const SKIP_PROMPT_INJECTION_SCAN = new Set<string>([
+  'read_file',
+  'list_dir',
+  'grep',
+  'semantic_search',
+  'find_similar',
+  'find_files',
+  'search_symbols',
+  'stat_file',
+  'get_open_tabs',
+  'get_editor_selection',
+  'read_diagnostics',
+  'treesitter_outline',
+  'git_status',
+  'git_log',
+  'git_diff',
+  'git_branch',
+  'list_recent_writes',
+]);
 
 /** Tools fully disabled in sandbox (never exposed when sandbox is on). */
 const SANDBOX_BLOCKED_TOOLS = new Set<string>([
@@ -474,6 +501,58 @@ function jsonRedacted(value: unknown): unknown {
   }
 }
 
+function eventStatusFromToolStatus(
+  status: ToolExecutionEvent['status'],
+): 'pending' | 'running' | 'success' | 'error' | 'denied' | 'info' {
+  if (status === 'success') return 'success';
+  if (status === 'error') return 'error';
+  if (status === 'denied') return 'denied';
+  if (status === 'executing') return 'running';
+  return status === 'approved' ? 'info' : 'pending';
+}
+
+async function appendAgentEventForTool(args: {
+  taskId?: string | null;
+  toolCallId: string;
+  toolName: string;
+  status: ToolExecutionEvent['status'];
+  title?: string;
+  detail?: string;
+  checkpointId?: string;
+}): Promise<void> {
+  const taskId = args.taskId?.trim();
+  if (!taskId) return;
+  try {
+    const event = await tasksApi.appendTaskEvent({
+      taskId,
+      type: args.checkpointId ? 'checkpoint' : args.status === 'approved' ? 'approval' : 'tool',
+      status: eventStatusFromToolStatus(args.status),
+      title: args.title ?? args.toolName,
+      detail: args.detail,
+      toolCallId: args.toolCallId,
+      checkpointId: args.checkpointId,
+    });
+    sendToRenderer('agentEvents:changed', event);
+  } catch (e) {
+    console.warn('[agentEvents] append failed:', e instanceof Error ? e.message : e);
+  }
+}
+
+function checkpointPathsForTool(toolName: string, args: Record<string, unknown>): string[] {
+  if (toolName === 'rename_file') {
+    return [String(args.from ?? ''), String(args.to ?? '')].filter(Boolean);
+  }
+  if (
+    toolName === 'write_file' ||
+    toolName === 'edit_file' ||
+    toolName === 'create_file' ||
+    toolName === 'delete_file'
+  ) {
+    return [String(args.path ?? '')].filter(Boolean);
+  }
+  return [];
+}
+
 /**
  * Request approval from the renderer process.
  */
@@ -599,6 +678,14 @@ export async function executeTool(
     status: 'pending',
   };
   sendToRenderer('tools:execution', executionEvent);
+  void appendAgentEventForTool({
+    taskId: activeTaskId,
+    toolCallId,
+    toolName,
+    status: 'pending',
+    title: `Tool queued: ${toolName}`,
+    detail: JSON.stringify(jsonRedacted(args ?? {})).slice(0, 500),
+  });
 
   const settings = await getSettings();
   const effectiveProductMode = productModeOverride ?? settings.productMode;
@@ -611,6 +698,14 @@ export async function executeTool(
       status: 'denied',
       error: msg,
       durationMs,
+    });
+    void appendAgentEventForTool({
+      taskId: activeTaskId,
+      toolCallId,
+      toolName,
+      status: 'denied',
+      title: `Tool denied: ${tool.name}`,
+      detail: msg,
     });
     void recordToolRun(false);
     return { success: false, error: msg };
@@ -627,6 +722,14 @@ export async function executeTool(
       status: 'denied',
       error: msg,
       durationMs,
+    });
+    void appendAgentEventForTool({
+      taskId: activeTaskId,
+      toolCallId,
+      toolName,
+      status: 'denied',
+      title: `Sandbox blocked: ${tool.name}`,
+      detail: msg,
     });
     void toolAudit.appendToolAuditLine({
       ts: Date.now(),
@@ -652,6 +755,14 @@ export async function executeTool(
       status: 'success',
       result: redactSecrets(resultStr),
       durationMs,
+    });
+    void appendAgentEventForTool({
+      taskId: activeTaskId,
+      toolCallId,
+      toolName,
+      status: 'success',
+      title: `Dry-run: ${tool.name}`,
+      detail: resultStr.slice(0, 800),
     });
     void toolAudit.appendToolAuditLine({
       ts: Date.now(),
@@ -694,15 +805,38 @@ export async function executeTool(
         status: 'denied',
         durationMs: Date.now() - startTime,
       });
+      void appendAgentEventForTool({
+        taskId: activeTaskId,
+        toolCallId,
+        toolName,
+        status: 'denied',
+        title: `Denied: ${tool.name}`,
+        detail: 'Tool execution denied by user.',
+      });
       void recordToolRun(false);
       return { success: false, error: 'Tool execution denied by user.' };
     }
 
     sendToRenderer('tools:execution', { ...executionEvent, status: 'approved' });
+    void appendAgentEventForTool({
+      taskId: activeTaskId,
+      toolCallId,
+      toolName,
+      status: 'approved',
+      title: `Approved: ${tool.name}`,
+      detail: preview,
+    });
   }
 
   // Execute the tool
   sendToRenderer('tools:execution', { ...executionEvent, status: 'executing' });
+  void appendAgentEventForTool({
+    taskId: activeTaskId,
+    toolCallId,
+    toolName,
+    status: 'executing',
+    title: `Running: ${tool.name}`,
+  });
 
   const ctx: ToolContext = {
     projectRoot: getRoot(),
@@ -718,6 +852,40 @@ export async function executeTool(
       });
     },
   };
+
+  const checkpointPaths = ctx.projectRoot && settings.autoCheckpointBeforeWrites
+    ? checkpointPathsForTool(tool.name, args)
+    : [];
+  if (ctx.projectRoot && activeTaskId && checkpointPaths.length > 0) {
+    try {
+      const summary = await checkpointsApi.saveWorkspaceCheckpoint(
+        ctx.projectRoot,
+        `Before ${tool.name}`,
+        checkpointPaths,
+      );
+      if (summary) {
+        await tasksApi.addCheckpointToTask(activeTaskId, summary.id);
+        await appendAgentEventForTool({
+          taskId: activeTaskId,
+          toolCallId,
+          toolName,
+          status: 'success',
+          title: `Checkpoint: ${summary.label}`,
+          detail: `${summary.fileCount} file(s) captured before ${tool.name}.`,
+          checkpointId: summary.id,
+        });
+      }
+    } catch (e) {
+      await appendAgentEventForTool({
+        taskId: activeTaskId,
+        toolCallId,
+        toolName,
+        status: 'error',
+        title: 'Checkpoint failed',
+        detail: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
 
   try {
     let handlerResult = await tool.handler(args, ctx);
@@ -739,7 +907,11 @@ export async function executeTool(
       void notifyRendererAgentFileSynced(toolName, args, ctx.projectRoot).catch(() => {});
     }
 
-    if (handlerResult.success && handlerResult.result !== undefined) {
+    if (
+      handlerResult.success &&
+      handlerResult.result !== undefined &&
+      !SKIP_PROMPT_INJECTION_SCAN.has(tool.name)
+    ) {
       const rawForScan =
         typeof handlerResult.result === 'string'
           ? handlerResult.result
@@ -751,6 +923,17 @@ export async function executeTool(
           toolName,
           patterns: scan.patterns,
         });
+        if (activeTaskId) {
+          const event = await tasksApi.appendTaskEvent({
+            taskId: activeTaskId,
+            type: 'trust',
+            status: 'error',
+            title: 'Prompt-injection warning',
+            detail: `${tool.name}: ${scan.patterns.join(', ')}`,
+            toolCallId,
+          });
+          sendToRenderer('agentEvents:changed', event);
+        }
         const innerEscaped = rawForScan.replace(/</g, '\\u003c');
         handlerResult = {
           ...handlerResult,
@@ -773,6 +956,16 @@ export async function executeTool(
       result: safeResultStr,
       error: handlerResult.error ? redactSecrets(handlerResult.error) : undefined,
       durationMs,
+    });
+    void appendAgentEventForTool({
+      taskId: activeTaskId,
+      toolCallId,
+      toolName,
+      status: handlerResult.success ? 'success' : 'error',
+      title: `${handlerResult.success ? 'Completed' : 'Failed'}: ${tool.name}`,
+      detail: handlerResult.success
+        ? safeResultStr?.slice(0, 1000)
+        : redactSecrets(handlerResult.error ?? 'Tool failed'),
     });
 
     void toolAudit.appendToolAuditLine({
@@ -801,6 +994,14 @@ export async function executeTool(
       status: 'error',
       error,
       durationMs,
+    });
+    void appendAgentEventForTool({
+      taskId: activeTaskId,
+      toolCallId,
+      toolName,
+      status: 'error',
+      title: `Error: ${tool.name}`,
+      detail: error,
     });
 
     void toolAudit.appendToolAuditLine({
@@ -953,6 +1154,12 @@ export function initializeTools(): void {
   registerTool(extrasTools.githubListIssuesTool);
   registerTool(extrasTools.linearListIssuesTool);
   registerTool(extrasTools.listMcpServersTool);
+  registerTool(extrasTools.mcpSessionsStatusTool);
+  registerTool(extrasTools.mcpSessionStartTool);
+  registerTool(extrasTools.mcpSessionStopTool);
+  registerTool(extrasTools.mcpToolsListTool);
+  registerTool(extrasTools.mcpToolsCallTool);
+  registerTool(extrasTools.mcpServerProbeTool);
   registerTool(extrasTools.listOpencodeCustomToolsTool);
   registerTool(extrasTools.pluginRegistryStatusTool);
   registerTool(extrasTools.exportAgentTaskTool);

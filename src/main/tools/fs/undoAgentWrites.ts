@@ -1,4 +1,5 @@
 import type { RegisteredTool, ToolHandlerResult } from '../../../shared/types.js';
+import { getErrorMessage } from '../../../shared/errorUtils.js';
 import { undoAllWriteSnapshots, writeUndoDepth } from '../../writeUndoStack.js';
 
 export const tool: RegisteredTool = {
@@ -30,7 +31,7 @@ export const tool: RegisteredTool = {
         error: errors.length > 0 ? errors.join('; ') : undefined,
       };
     } catch (e) {
-      return { success: false, error: `undo_agent_writes failed: ${(e as Error).message}` };
+      return { success: false, error: `undo_agent_writes failed: ${getErrorMessage(e)}` };
     }
   },
 };

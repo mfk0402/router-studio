@@ -36,55 +36,6 @@ const RISKY_PATTERNS = [
   /npm\s+install\s+-g/i,
 ];
 
-export type ShellRiskScore = 0 | 1 | 2 | 3 | 4 | 5;
-
-/** Score shell commands for approval UX (0 = calm, 5 = destructive / pipe-to-shell). */
-export function scoreShellCommand(command: string): {
-  score: ShellRiskScore;
-  reasons: string[];
-  saferAlternative?: string;
-} {
-  const cmd = command.trim();
-  const reasons: string[] = [];
-  let score: ShellRiskScore = 0;
-
-  if (/curl\s+.+\|\s*(bash|sh|zsh)/i.test(cmd) || /wget\s+.+\|\s*(bash|sh|zsh)/i.test(cmd)) {
-    reasons.push('Downloads piped into a shell');
-    score = 4;
-  }
-  if (/\bsudo\b/i.test(cmd) || /\bmkfs\b/i.test(cmd) || /chmod\s+777\s+\//i.test(cmd)) {
-    reasons.push('Elevated or broad filesystem permission change');
-    score = Math.max(score, 5) as ShellRiskScore;
-  }
-  if (/\brm\s+(-rf?|--recursive)\b/i.test(cmd) || /\bdel\s+\/[sf]/i.test(cmd)) {
-    reasons.push('Recursive / forced delete');
-    score = Math.max(score, 3) as ShellRiskScore;
-  }
-  if (/\b(npm|pnpm|yarn)\s+install\b|\bpip\s+install\b/i.test(cmd)) {
-    reasons.push('Package install');
-    score = Math.max(score, 2) as ShellRiskScore;
-  }
-  if (/\b(git|npm|pnpm|yarn)\s+publish\b/i.test(cmd)) {
-    reasons.push('Publish / release');
-    score = Math.max(score, 4) as ShellRiskScore;
-  }
-  if (
-    /\b(npm|pnpm|yarn)\s+(run\s+)?test\b|\bjest\b|\bvitest\b|\bmocha\b|\bpytest\b|\bgo\s+test\b|\bcargo\s+test\b|\btsc\b|\beslint\b/i.test(
-      cmd,
-    )
-  ) {
-    reasons.push('Tests / static checks');
-    score = Math.max(score, 1) as ShellRiskScore;
-  }
-
-  let saferAlternative: string | undefined;
-  if (score >= 4 && /curl\s+.+\|\s*bash/i.test(cmd)) {
-    saferAlternative = 'curl -o setup.sh <url> && review file && bash setup.sh';
-  }
-
-  return { score, reasons, saferAlternative };
-}
-
 export const tool: RegisteredTool = {
   name: 'run_shell',
   description:
@@ -202,35 +153,47 @@ interface CommandResult {
   durationMs: number;
 }
 
+/** When the command looks like argv-only (no shell metacharacters), run without spawning an extra `/bin/sh` / cmd layer. */
+function tryArgvSpawn(command: string): string[] | null {
+  const t = command.trim();
+  if (!t) return null;
+  if (/["'`\$|&;<>()*?[\]\n\\]|&&|\|\|/.test(t)) return null;
+  const parts = t.split(/\s+/).filter(Boolean);
+  return parts.length > 0 ? parts : null;
+}
+
 async function runCommand(
   command: string,
   cwd: string,
   timeoutMs: number,
 ): Promise<CommandResult> {
+  const argvDirect = tryArgvSpawn(command);
+
   return new Promise((resolve) => {
     const startTime = Date.now();
     const isWindows = os.platform() === 'win32';
 
-    const shell = isWindows ? 'cmd.exe' : '/bin/sh';
-    const shellArgs = isWindows ? ['/c', command] : ['-c', command];
+    const prog = argvDirect?.length ? argvDirect[0]! : isWindows ? 'cmd.exe' : '/bin/sh';
+    const args = argvDirect?.length ? argvDirect.slice(1) : isWindows ? ['/c', command] : ['-c', command];
 
-    const proc = spawn(shell, shellArgs, {
+    const proc = spawn(prog, args, {
       cwd,
+      shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: timeoutMs,
       env: {
         ...process.env,
-        // Disable interactive prompts
         GIT_TERMINAL_PROMPT: '0',
         CI: 'true',
       },
+      windowsHide: true,
     });
 
     let stdout = '';
     let stderr = '';
     let timedOut = false;
 
-    proc.stdout.on('data', (data: Buffer) => {
+    proc.stdout?.on('data', (data: Buffer) => {
       stdout += data.toString();
       // Prevent memory explosion
       if (stdout.length > 100000) {
@@ -238,7 +201,7 @@ async function runCommand(
       }
     });
 
-    proc.stderr.on('data', (data: Buffer) => {
+    proc.stderr?.on('data', (data: Buffer) => {
       stderr += data.toString();
       if (stderr.length > 50000) {
         stderr = stderr.slice(-40000);

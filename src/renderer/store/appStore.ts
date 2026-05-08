@@ -27,6 +27,14 @@ export interface OpenTab {
   dirty: boolean;
 }
 
+export interface ToolCallLiveRow {
+  id: string;
+  name: string;
+  argsSnippet: string;
+  status: 'running' | 'success' | 'error';
+  resultSnippet?: string;
+}
+
 export interface ChatMsg {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -52,6 +60,8 @@ export interface ChatMsg {
   generatedAudioObjectUrl?: string;
   /** Suggested filename for TTS download (e.g. router-studio-tts-….mp3). */
   ttsAudioFileName?: string;
+  /** Ephemeral rows for in-flight agent tools (never persisted). */
+  toolCallLive?: ToolCallLiveRow[];
   createdAt: number;
 }
 
@@ -68,8 +78,11 @@ interface AppState {
   fileTree: FileEntry | null;
   /** Absolute paths, MRU (persisted in session). */
   recentProjectRoots: string[];
+  projectLoading: boolean;
+  projectLoadingLabel: string | null;
   setProjectRoot: (root: string | null) => void;
   setFileTree: (tree: FileEntry | null) => void;
+  setProjectLoading: (loading: boolean, label?: string | null) => void;
   touchRecentProject: (absolutePath: string) => void;
   removeRecentProject: (absolutePath: string) => void;
   openProjectFromPath: (absolutePath: string) => Promise<boolean>;
@@ -251,16 +264,23 @@ export const useApp = create<AppState>((set, get) => ({
   projectRoot: null,
   fileTree: null,
   recentProjectRoots: [],
+  projectLoading: false,
+  projectLoadingLabel: null,
   setProjectRoot: (root) => set({ projectRoot: root }),
   setFileTree: (tree) => set({ fileTree: tree }),
+  setProjectLoading: (projectLoading, projectLoadingLabel = null) =>
+    set({ projectLoading, projectLoadingLabel: projectLoading ? projectLoadingLabel : null }),
   refreshFileTreeFromDisk: async () => {
     const root = get().projectRoot;
     if (!root) return;
     try {
+      set({ projectLoading: true, projectLoadingLabel: 'Refreshing files...' });
       const tree = await window.api.fs.listFiles();
       set({ fileTree: tree });
     } catch (e) {
       get().pushLog('warn', `File tree refresh failed: ${(e as Error).message}`);
+    } finally {
+      set({ projectLoading: false, projectLoadingLabel: null });
     }
   },
 
@@ -273,6 +293,7 @@ export const useApp = create<AppState>((set, get) => ({
   pickAndOpenProjectFolder: async () => {
     const pushLog = get().pushLog;
     try {
+      set({ projectLoading: true, projectLoadingLabel: 'Choosing folder...' });
       const root = await window.api.fs.openFolder();
       if (!root) {
         pushLog('info', 'Open Folder canceled.');
@@ -282,11 +303,14 @@ export const useApp = create<AppState>((set, get) => ({
     } catch (e) {
       pushLog('error', `Open Folder failed: ${(e as Error).message}`);
       return false;
+    } finally {
+      set({ projectLoading: false, projectLoadingLabel: null });
     }
   },
   openProjectFromPath: async (absolutePath: string) => {
     const pushLog = get().pushLog;
     try {
+      set({ projectLoading: true, projectLoadingLabel: 'Opening folder...' });
       const ok = await window.api.fs.setRoot(absolutePath);
       if (!ok) {
         pushLog('error', `Could not open project folder:\n${absolutePath}`);
@@ -294,6 +318,7 @@ export const useApp = create<AppState>((set, get) => ({
         void get().saveSession();
         return false;
       }
+      set({ projectLoadingLabel: 'Loading files...' });
       const tree = await window.api.fs.listFiles();
       set((s) => ({
         projectRoot: absolutePath,
@@ -306,6 +331,8 @@ export const useApp = create<AppState>((set, get) => ({
     } catch (e) {
       pushLog('error', `Open failed: ${(e as Error).message}`);
       return false;
+    } finally {
+      set({ projectLoading: false, projectLoadingLabel: null });
     }
   },
 

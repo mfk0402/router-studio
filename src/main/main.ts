@@ -5,6 +5,8 @@ import { registerAppWindowGetter } from './appWindow.js';
 import { registerIpc } from './ipc.js';
 import { setupAutoUpdater, setUpdaterTargetWindow } from './updater.js';
 import { killAllSessions } from './terminal.js';
+import * as lspHost from './lspHost.js';
+import { stopAllMcp } from './mcpHost.js';
 import { stopProjectWatcher } from './projectWatcher.js';
 import { ensureDefaultAgentRule } from './rules.js';
 import { startScheduledTasksLoop } from './scheduledTasks.js';
@@ -118,12 +120,15 @@ if (!gotLock) {
   app.on('window-all-closed', () => {
     killAllSessions();
     void stopProjectWatcher();
+    stopAllMcp();
     if (process.platform !== 'darwin') app.quit();
   });
 
   app.on('before-quit', () => {
     killAllSessions();
     void stopProjectWatcher();
+    lspHost.stopAllLsp();
+    stopAllMcp();
   });
 
   // Security: block unknown navigation targets.

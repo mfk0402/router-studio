@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { getPortalRoot } from '../lib/portalRoot';
 
 export interface ContextMenuItem {
   label: string;
@@ -112,5 +113,5 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
     </div>
   );
 
-  return createPortal(menu, document.body);
+  return createPortal(menu, getPortalRoot());
 }

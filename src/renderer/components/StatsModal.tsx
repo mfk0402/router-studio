@@ -124,6 +124,45 @@ export default function StatsModal() {
                 <br />
                 <span className="text-fg-muted">Last update:</span> {formatTs(stats.updatedAt)}
               </div>
+              {stats.modelLatencyByModel && Object.keys(stats.modelLatencyByModel).length > 0 ? (
+                <div className="rounded-md border border-border-soft bg-bg-soft p-3">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+                    Completion latency by model id
+                  </div>
+                  <div className="max-h-[200px] overflow-auto text-[11px]">
+                    <table className="w-full border-collapse text-left">
+                      <thead>
+                        <tr className="border-b border-border-soft text-[10px] text-fg-muted">
+                          <th className="py-1 pr-2 font-medium">Model</th>
+                          <th className="py-1 pr-2 font-medium">Avg ms</th>
+                          <th className="py-1 pr-2 font-medium">Samples</th>
+                          <th className="py-1 font-medium">Failures</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...Object.entries(stats.modelLatencyByModel)]
+                          .sort((a, b) => {
+                            const am = (a[1]?.avgMs ?? 0) - (b[1]?.avgMs ?? 0);
+                            return am !== 0 ? am : a[0].localeCompare(b[0]);
+                          })
+                          .map(([id, row]) => (
+                            <tr key={id} className="border-b border-border-soft font-mono last:border-b-0">
+                              <td className="truncate py-1 pr-2 text-fg-muted" title={id}>
+                                {id}
+                              </td>
+                              <td className="py-1 pr-2 text-fg">{formatInt(row?.avgMs ?? 0)}</td>
+                              <td className="py-1 pr-2 text-fg">{formatInt(row?.samples ?? 0)}</td>
+                              <td className="py-1 text-danger/90">{formatInt(row?.failures ?? 0)}</td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="mt-2 text-[10px] text-fg-subtle">
+                    Averages measured locally from stream end-to-last-token timing; failures count errored completions.
+                  </p>
+                </div>
+              ) : null}
             </>
           ) : (
             <p className="text-fg-muted">No data loaded.</p>

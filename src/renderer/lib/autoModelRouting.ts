@@ -67,6 +67,7 @@ export function inferCategoryForRequest(ctx: AutoRouteInferenceInput): ModelCate
   if (ctx.estimatedPromptTokens >= 80_000) return 'large-context';
 
   const mode = ctx.productMode;
+  if (mode === 'learn') return 'chat';
   if (mode === 'architect' || mode === 'review') return 'reasoning';
   if (mode === 'agent' || mode === 'edit') return 'coding';
   if (ctx.agentMode || ctx.toolsEnabled) return 'coding';

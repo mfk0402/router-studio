@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import Editor, { loader, type OnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
@@ -13,8 +13,9 @@ import { useShallow } from 'zustand/react/shallow';
 import { registerGhostInlineCompletions } from '../lib/ghostInlineCompletion';
 import { registerUserSnippetCompletions } from '../lib/userSnippetsMonaco';
 import InlineEditWidget from './InlineEditWidget';
+import { lspHoverToMonacoMarkdown } from '../lib/lspHoverMarkdown';
+import type { LspRangeWire } from '../../shared/lspWire';
 
-let editorHoverDisposable: monaco.IDisposable | null = null;
 import CodeActionsMenu from './CodeActionsMenu';
 import ContextMenu from './ContextMenu';
 import type { ContextMenuItem } from './ContextMenu';
@@ -25,7 +26,8 @@ self.MonacoEnvironment = {
     if (label === 'json') return new jsonWorker();
     if (label === 'css' || label === 'scss' || label === 'less') return new cssWorker();
     if (label === 'html' || label === 'handlebars' || label === 'razor') return new htmlWorker();
-    if (label === 'typescript' || label === 'javascript') return new tsWorker();
+    if (label === 'typescript' || label === 'javascript' || label === 'typescriptreact' || label === 'javascriptreact')
+      return new tsWorker();
     return new editorWorker();
   },
 };
@@ -33,42 +35,158 @@ self.MonacoEnvironment = {
 // Use the npm-bundled monaco instance so nothing is fetched from a CDN.
 loader.config({ monaco });
 
-/** Router Studio design kit — Monaco chrome aligned to app surfaces (#0B1220 / #111827, cyan cursor). */
+/** Syntax tokens — midnight / GitHub-dark inspired (matches README preview + Monaco chrome). */
+const ROUTER_STUDIO_DARK_RULES: monaco.editor.ITokenThemeRule[] = [
+  { token: 'comment', foreground: '8b949e', fontStyle: 'italic' },
+  { token: 'string', foreground: 'a5d6ff' },
+  { token: 'string.yaml', foreground: 'a5d6ff' },
+  { token: 'literal', foreground: '79c0ff' },
+  { token: 'number', foreground: '79c0ff' },
+  { token: 'regexp', foreground: '7ee787' },
+  { token: 'keyword', foreground: 'ff7b72' },
+  { token: 'keyword.flow', foreground: 'ff7b72' },
+  { token: 'keyword.json', foreground: 'ff7b72' },
+  { token: 'operator', foreground: '8b949e' },
+  { token: 'tag', foreground: '7ee787' },
+  { token: 'type', foreground: 'ffa657' },
+  { token: 'type.identifier', foreground: 'ffa657' },
+  { token: 'struct', foreground: 'ffa657' },
+  { token: 'class', foreground: 'ffa657' },
+  { token: 'interface', foreground: 'ffa657' },
+  { token: 'enum', foreground: 'ffa657' },
+  { token: 'namespace', foreground: '79c0ff' },
+  { token: 'function', foreground: 'd2a8ff' },
+  { token: 'function.static', foreground: 'd2a8ff' },
+  { token: 'method', foreground: 'd2a8ff' },
+  { token: 'parameter', foreground: '79c0ff' },
+  { token: 'variable', foreground: 'e6edf3' },
+  { token: 'variable.readonly', foreground: '79c0ff' },
+  { token: 'variable.predefined', foreground: '79c0ff' },
+  { token: 'property.readonly', foreground: '79c0ff' },
+  { token: 'property', foreground: 'e6edf3' },
+  { token: 'decorator', foreground: 'd2a8ff' },
+  { token: 'annotation', foreground: 'd2a8ff' },
+  { token: 'delimiter', foreground: '8b949e' },
+  { token: 'delimiter.bracket', foreground: 'c9d1d9' },
+  { token: 'identifier', foreground: 'e6edf3' },
+];
+
+const ROUTER_STUDIO_LIGHT_RULES: monaco.editor.ITokenThemeRule[] = [
+  { token: 'comment', foreground: '64748b', fontStyle: 'italic' },
+  { token: 'string', foreground: '0369a1' },
+  { token: 'string.yaml', foreground: '0369a1' },
+  { token: 'literal', foreground: 'a16207' },
+  { token: 'number', foreground: 'c2410c' },
+  { token: 'regexp', foreground: 'be123c' },
+  { token: 'keyword', foreground: '7c3aed' },
+  { token: 'keyword.flow', foreground: '6d28d9' },
+  { token: 'keyword.json', foreground: '7c3aed' },
+  { token: 'operator', foreground: '475569' },
+  { token: 'tag', foreground: 'be185d' },
+  { token: 'type', foreground: 'a16207' },
+  { token: 'type.identifier', foreground: 'a16207' },
+  { token: 'struct', foreground: '9a3412' },
+  { token: 'class', foreground: 'b45309' },
+  { token: 'interface', foreground: 'b45309' },
+  { token: 'enum', foreground: 'b45309' },
+  { token: 'namespace', foreground: '075985' },
+  { token: 'function', foreground: '0369a1' },
+  { token: 'function.static', foreground: '0284c7' },
+  { token: 'method', foreground: '0369a1' },
+  { token: 'parameter', foreground: '1d4ed8' },
+  { token: 'variable', foreground: '0f172a' },
+  { token: 'variable.readonly', foreground: '1e40af' },
+  { token: 'variable.predefined', foreground: '0369a1' },
+  { token: 'property.readonly', foreground: '334155' },
+  { token: 'property', foreground: '334155' },
+  { token: 'decorator', foreground: '6d28d9' },
+  { token: 'annotation', foreground: '6d28d9' },
+  { token: 'delimiter', foreground: '64748b' },
+  { token: 'delimiter.bracket', foreground: '475569' },
+  { token: 'identifier', foreground: '1e293b' },
+];
+
+/** Router Studio dark — midnight editor (#0d1117) + blue focus, aligned with workbench chrome. */
 monaco.editor.defineTheme('router-studio-dark', {
   base: 'vs-dark',
   inherit: true,
-  rules: [{ token: 'comment', foreground: '64748b', fontStyle: 'italic' }],
+  rules: ROUTER_STUDIO_DARK_RULES,
   colors: {
-    'editor.background': '#0B1220',
-    'editor.foreground': '#E6E8EB',
-    'editorLineNumber.foreground': '#64748B',
-    'editorLineNumber.activeForeground': '#94A3B8',
-    'editorCursor.foreground': '#22D3EE',
-    'editor.selectionBackground': '#6366FF40',
-    'editor.inactiveSelectionBackground': '#6366FF22',
-    'editor.selectionHighlightBackground': '#6366FF28',
-    'editor.lineHighlightBackground': '#161C2A',
-    'editor.lineHighlightBorder': '#26304122',
-    'editorGutter.background': '#111827',
-    'editorGutter.modifiedBackground': '#6366FF33',
-    'editorGutter.addedBackground': '#22C55E44',
-    'editorGutter.deletedBackground': '#EF444444',
-    'editorWhitespace.foreground': '#33415566',
-    'editorIndentGuide.background': '#26304133',
-    'editorIndentGuide.activeBackground': '#26304166',
-    'editorBracketMatch.background': '#6366FF22',
-    'editorBracketMatch.border': '#22D3EE66',
+    'editor.background': '#0d1117',
+    'editor.foreground': '#e6edf3',
+    'editorLineNumber.foreground': '#6e7681',
+    'editorLineNumber.activeForeground': '#8b949e',
+    'editorCursor.foreground': '#58a6ff',
+    'editor.selectionBackground': '#388bfd44',
+    'editor.inactiveSelectionBackground': '#388bfd22',
+    'editor.selectionHighlightBackground': '#388bfd33',
+    'editor.lineHighlightBackground': '#21262d',
+    'editor.lineHighlightBorder': '#21262d22',
+    'editorGutter.background': '#161b22',
+    'editorGutter.modifiedBackground': '#bb800933',
+    'editorGutter.addedBackground': '#2ea04344',
+    'editorGutter.deletedBackground': '#f8514944',
+    'editorWhitespace.foreground': '#484f5866',
+    'editorIndentGuide.background': '#21262d99',
+    'editorIndentGuide.activeBackground': '#484f58cc',
+    'editorBracketMatch.background': '#388bfd22',
+    'editorBracketMatch.border': '#58a6ff66',
     'scrollbar.shadow': '#00000000',
-    'scrollbarSlider.background': '#26304188',
-    'scrollbarSlider.hoverBackground': '#263041BB',
-    'scrollbarSlider.activeBackground': '#263041DD',
-    'minimap.background': '#111827',
-    'minimap.selectionHighlight': '#6366FF66',
-    'minimapSlider.background': '#6366FF33',
-    'minimapSlider.hoverBackground': '#6366FF55',
-    'minimapSlider.activeBackground': '#6366FF77',
+    'scrollbarSlider.background': '#484f5888',
+    'scrollbarSlider.hoverBackground': '#484f58bb',
+    'scrollbarSlider.activeBackground': '#6e7681aa',
+    'minimap.background': '#161b22',
+    'minimap.selectionHighlight': '#388bfd66',
+    'minimapSlider.background': '#388bfd33',
+    'minimapSlider.hoverBackground': '#388bfd55',
+    'minimapSlider.activeBackground': '#388bfd77',
   },
 });
+
+monaco.editor.defineTheme('router-studio-light', {
+  base: 'vs',
+  inherit: true,
+  rules: ROUTER_STUDIO_LIGHT_RULES,
+  colors: {
+    'editor.background': '#f8fafc',
+    'editor.foreground': '#0f172a',
+    'editorLineNumber.foreground': '#94a3b8',
+    'editorLineNumber.activeForeground': '#64748b',
+    'editorCursor.foreground': '#0284c7',
+    'editor.selectionBackground': '#6366f140',
+    'editor.inactiveSelectionBackground': '#6366f122',
+    'editor.selectionHighlightBackground': '#6366f128',
+    'editor.lineHighlightBackground': '#f1f5f9',
+    'editor.lineHighlightBorder': '#e2e8f022',
+    'editorGutter.background': '#f1f5f9',
+    'editorGutter.modifiedBackground': '#6366f133',
+    'editorGutter.addedBackground': '#22c55e44',
+    'editorGutter.deletedBackground': '#ef444444',
+    'editorWhitespace.foreground': '#cbd5e166',
+    'editorIndentGuide.background': '#e2e8f099',
+    'editorIndentGuide.activeBackground': '#cbd5e1cc',
+    'editorBracketMatch.background': '#6366f122',
+    'editorBracketMatch.border': '#0284c766',
+    'scrollbar.shadow': '#00000000',
+    'scrollbarSlider.background': '#cbd5e188',
+    'scrollbarSlider.hoverBackground': '#94a3b8aa',
+    'scrollbarSlider.activeBackground': '#64748bcc',
+    'minimap.background': '#f1f5f9',
+    'minimap.selectionHighlight': '#6366f166',
+    'minimapSlider.background': '#6366f133',
+    'minimapSlider.hoverBackground': '#6366f155',
+    'minimapSlider.activeBackground': '#6366f177',
+  },
+});
+
+function lspRangeWireToMonaco(r: LspRangeWire): monaco.IRange {
+  return {
+    startLineNumber: r.start.line + 1,
+    startColumn: r.start.character + 1,
+    endLineNumber: r.end.line + 1,
+    endColumn: r.end.character + 1,
+  };
+}
 
 interface InlineEditState {
   isOpen: boolean;
@@ -76,7 +194,7 @@ interface InlineEditState {
   selectedText: string;
 }
 
-export default function MonacoEditorPane() {
+function MonacoEditorPane() {
   const uiTheme = useResolvedTheme();
   const tab = useApp(
     useShallow((s) => {
@@ -97,6 +215,13 @@ export default function MonacoEditorPane() {
   const clearEditorRevealRequest = useApp((s) => s.clearEditorRevealRequest);
 
   const editorSettings = useSettings((s) => s.settings.editor);
+  const projectRoot = useApp((s) => s.projectRoot);
+  const tsLsEnabled = editorSettings?.typescriptLanguageServer ?? false;
+
+  const lspTrackedPathRef = useRef<string | null>(null);
+  const lspDebounceTimerRef = useRef<number | null>(null);
+  const tabForLspRef = useRef(tab);
+  tabForLspRef.current = tab;
 
   const formatOnSaveRef = useRef(formatOnSave);
   formatOnSaveRef.current = formatOnSave;
@@ -154,6 +279,226 @@ export default function MonacoEditorPane() {
       clearTimeout(handle);
     };
   }, [editorRevealRequest, tab, clearEditorRevealRequest]);
+
+  const LSP_MONACO_LANG = useMemo(
+    () => new Set(['typescript', 'javascript', 'typescriptreact', 'javascriptreact']),
+    [],
+  );
+
+  useEffect(() => {
+    void window.api.lsp.configure(projectRoot ?? null);
+  }, [projectRoot, tsLsEnabled]);
+
+  useEffect(() => {
+    if (lspDebounceTimerRef.current) {
+      clearTimeout(lspDebounceTimerRef.current);
+      lspDebounceTimerRef.current = null;
+    }
+
+    const closeTracked = () => {
+      const prevPath = lspTrackedPathRef.current;
+      if (prevPath) {
+        void window.api.lsp.syncDoc({
+          kind: 'close',
+          relPath: prevPath,
+          languageId: 'typescript',
+        });
+        lspTrackedPathRef.current = null;
+      }
+    };
+
+    if (!projectRoot || !tsLsEnabled || !tab || !LSP_MONACO_LANG.has(tab.language)) {
+      closeTracked();
+      return;
+    }
+
+    const rel = tab.relativePath;
+    const langId = tab.language;
+    let cancelled = false;
+
+    void (async () => {
+      const prev = lspTrackedPathRef.current;
+      try {
+        if (prev && prev !== rel && !cancelled) {
+          await window.api.lsp.syncDoc({
+            kind: 'close',
+            relPath: prev,
+            languageId: 'typescript',
+          });
+          if (cancelled) return;
+          if (lspTrackedPathRef.current === prev) lspTrackedPathRef.current = null;
+        }
+        if (cancelled) return;
+
+        if (lspTrackedPathRef.current !== rel) {
+          await window.api.lsp.syncDoc({
+            kind: 'open',
+            relPath: rel,
+            languageId: langId,
+            text: tab.content,
+          });
+          if (cancelled) return;
+          lspTrackedPathRef.current = rel;
+        }
+
+        const ct = tabForLspRef.current;
+        if (cancelled || !ct || ct.relativePath !== rel || lspTrackedPathRef.current !== rel) return;
+
+        lspDebounceTimerRef.current = window.setTimeout(() => {
+          const latest = tabForLspRef.current;
+          void window.api.lsp.syncDoc({
+            kind: 'change',
+            relPath: rel,
+            languageId: latest?.relativePath === rel ? latest.language : langId,
+            text: latest?.relativePath === rel ? latest.content : undefined,
+          });
+          lspDebounceTimerRef.current = null;
+        }, 280);
+      } catch (e) {
+        console.warn('[lsp]', e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (lspDebounceTimerRef.current) {
+        clearTimeout(lspDebounceTimerRef.current);
+        lspDebounceTimerRef.current = null;
+      }
+    };
+  }, [projectRoot, tsLsEnabled, tab?.relativePath, tab?.language, tab?.content, LSP_MONACO_LANG]);
+
+  const hoverTabRef = useRef(tab);
+  hoverTabRef.current = tab;
+  const hoverTsLsRef = useRef(tsLsEnabled);
+  hoverTsLsRef.current = tsLsEnabled;
+
+  useEffect(() => {
+    const hoverSel: monaco.languages.LanguageSelector = [
+      'typescript',
+      'javascript',
+      'javascriptreact',
+      'typescriptreact',
+      'python',
+      'rust',
+      'go',
+      'json',
+      'html',
+      'css',
+      'markdown',
+    ];
+
+    const lspTsJsSel: monaco.languages.LanguageSelector = [
+      'typescript',
+      'javascript',
+      'javascriptreact',
+      'typescriptreact',
+    ];
+
+    const d = monaco.languages.registerHoverProvider(hoverSel, {
+      async provideHover(model, pos, token) {
+        void token;
+        const langId = model.getLanguageId();
+        const ht = hoverTabRef.current;
+        if (!ht) {
+          return { contents: [{ value: '_No editor tab_' }] };
+        }
+        const lspEligible =
+          hoverTsLsRef.current &&
+          ht &&
+          LSP_MONACO_LANG.has(langId);
+
+        let lspContents = null as ReturnType<typeof lspHoverToMonacoMarkdown>;
+        if (lspEligible) {
+          try {
+            const raw = await window.api.lsp.hover({
+              relPath: ht.relativePath,
+              line: pos.lineNumber,
+              character: pos.column,
+            });
+            lspContents = lspHoverToMonacoMarkdown(raw);
+          } catch {
+            lspContents = null;
+          }
+        }
+
+        if (lspContents && lspContents.length > 0) {
+          return { contents: lspContents };
+        }
+
+        const w = model.getWordAtPosition(pos);
+        if (!w) {
+          return { contents: [{ value: `_Line ${pos.lineNumber}_` }] };
+        }
+        const hint =
+          lspEligible && (!lspContents || lspContents.length === 0)
+            ? 'LSP did not provide hover here — word under cursor only.'
+            : 'Router Studio word hover · enable TS/JS LSP under Settings → Editor.';
+        return {
+          contents: [
+            {
+              value: `**${w.word}** · \`${model.getLanguageId()}\`\n\n${hint}`,
+            },
+          ],
+        };
+      },
+    });
+
+    const dDef = monaco.languages.registerDefinitionProvider(lspTsJsSel, {
+      async provideDefinition(model, position, token) {
+        void token;
+        if (!hoverTsLsRef.current) return null;
+        const t = hoverTabRef.current;
+        const ed = editorRef.current;
+        if (!t || !ed || ed.getModel() !== model || !LSP_MONACO_LANG.has(model.getLanguageId())) return null;
+        try {
+          const locs = await window.api.lsp.definition({
+            relPath: t.relativePath,
+            line: position.lineNumber,
+            character: position.column,
+          });
+          if (!locs?.length) return null;
+          return locs.map((loc) => ({
+            uri: monaco.Uri.parse(loc.uri),
+            range: lspRangeWireToMonaco(loc.range),
+          }));
+        } catch {
+          return null;
+        }
+      },
+    });
+
+    const dRef = monaco.languages.registerReferenceProvider(lspTsJsSel, {
+      async provideReferences(model, position, context, token) {
+        void token;
+        if (!hoverTsLsRef.current) return [];
+        const t = hoverTabRef.current;
+        const ed = editorRef.current;
+        if (!t || !ed || ed.getModel() !== model || !LSP_MONACO_LANG.has(model.getLanguageId())) return [];
+        try {
+          const locs = await window.api.lsp.references({
+            relPath: t.relativePath,
+            line: position.lineNumber,
+            character: position.column,
+            includeDeclaration: context.includeDeclaration,
+          });
+          if (!locs?.length) return [];
+          return locs.map((loc) => ({
+            uri: monaco.Uri.parse(loc.uri),
+            range: lspRangeWireToMonaco(loc.range),
+          }));
+        } catch {
+          return [];
+        }
+      },
+    });
+
+    return () => {
+      d.dispose();
+      dDef.dispose();
+      dRef.dispose();
+    };
+  }, [LSP_MONACO_LANG]);
 
   // Inline edit state
   const [inlineEdit, setInlineEdit] = useState<InlineEditState>({
@@ -447,40 +792,6 @@ export default function MonacoEditorPane() {
       registerGhostInlineCompletions(monacoInstance);
       registerUserSnippetCompletions(monacoInstance);
 
-      if (!editorHoverDisposable) {
-        const hoverSel: monaco.languages.LanguageSelector = [
-          'typescript',
-          'javascript',
-          'javascriptreact',
-          'typescriptreact',
-          'python',
-          'rust',
-          'go',
-          'json',
-          'html',
-          'css',
-          'markdown',
-        ];
-        editorHoverDisposable = monacoInstance.languages.registerHoverProvider(hoverSel, {
-          provideHover(model, pos) {
-            const w = model.getWordAtPosition(pos);
-            if (!w) {
-              return { contents: [{ value: `_Line ${pos.lineNumber}_` }] };
-            }
-            return {
-              contents: [
-                {
-                  value:
-                    `**${w.word}** · \`${model.getLanguageId()}\`\n\n` +
-                    'Router Studio rich hover: word under cursor and language id. ' +
-                    'Extend with LSP or project docs in later releases.',
-                },
-              ],
-            };
-          },
-        });
-      }
-
       editor.onDidChangeCursorSelection(() => {
         const model = editor.getModel();
         const sel = editor.getSelection();
@@ -646,6 +957,9 @@ export default function MonacoEditorPane() {
           links: true,
           colorDecorators: true,
 
+          // TS/JS: distinguish locals, parameters, readonly, etc.
+          'semanticHighlighting.enabled': true,
+
           // Inlay hints (for TypeScript parameter names, etc.)
           inlayHints: {
             enabled: 'on',
@@ -683,7 +997,7 @@ export default function MonacoEditorPane() {
       <Editor
         path={tab.relativePath}
         height="100%"
-        theme={uiTheme === 'light' ? 'vs-light' : 'router-studio-dark'}
+        theme={uiTheme === 'light' ? 'router-studio-light' : 'router-studio-dark'}
         language={tab.language}
         value={tab.content}
         onChange={handleChange}
@@ -726,3 +1040,5 @@ export default function MonacoEditorPane() {
     </div>
   );
 }
+
+export default memo(MonacoEditorPane);

@@ -270,68 +270,82 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
     });
     onMessagesUpdate(messages);
 
-    // Execute each tool call
-    for (const tc of result.toolCalls) {
-      if (abortSignal?.aborted) break;
+    totalToolCalls += result.toolCalls.length;
 
-      totalToolCalls++;
+    const toolMessages = await Promise.all(
+      result.toolCalls.map(async (tc): Promise<ChatMessage> => {
+        onToolCallStart({
+          id: tc.id,
+          name: tc.function.name,
+          args: tc.function.arguments ?? '',
+        });
 
-      onToolCallStart({
-        id: tc.id,
-        name: tc.function.name,
-        args: tc.function.arguments,
-      });
+        if (abortSignal?.aborted) {
+          const errText = 'Error: aborted before execution.';
+          onToolCallEnd({
+            id: tc.id,
+            name: tc.function.name,
+            args: {},
+            result: errText,
+            success: false,
+          });
+          return {
+            role: 'tool',
+            tool_call_id: tc.id,
+            content: errText,
+          };
+        }
 
-      const rawArgs = tc.function.arguments?.trim() ?? '';
-      let args: Record<string, unknown>;
-      try {
-        args = rawArgs ? (JSON.parse(rawArgs) as Record<string, unknown>) : {};
-      } catch {
-        const preview = rawArgs.slice(0, 800);
-        onLog(`Tool ${tc.function.name}: invalid JSON arguments (preview ${preview.length} chars)`);
-        const errText = `Error: malformed tool arguments — invalid JSON. Preview: ${preview}${rawArgs.length > 800 ? '…' : ''}`;
+        const rawArgs = tc.function.arguments?.trim() ?? '';
+        let args: Record<string, unknown>;
+        try {
+          args = rawArgs ? (JSON.parse(rawArgs) as Record<string, unknown>) : {};
+        } catch {
+          const preview = rawArgs.slice(0, 800);
+          onLog(`Tool ${tc.function.name}: invalid JSON arguments (preview ${preview.length} chars)`);
+          const errText = `Error: malformed tool arguments — invalid JSON. Preview: ${preview}${rawArgs.length > 800 ? '…' : ''}`;
+          onToolCallEnd({
+            id: tc.id,
+            name: tc.function.name,
+            args: {},
+            result: errText,
+            success: false,
+          });
+          return {
+            role: 'tool',
+            tool_call_id: tc.id,
+            content: errText,
+          };
+        }
+
+        onLog(`Tool: ${tc.function.name}(${truncateArgs(args)})`);
+
+        const toolResult = await window.api.tools.execute(tc.function.name, args, {
+          taskId: activeTaskId ?? undefined,
+          productMode,
+        });
+
+        const resultStr = toolResult.success
+          ? JSON.stringify(toolResult.result)
+          : `Error: ${toolResult.error}`;
+
         onToolCallEnd({
           id: tc.id,
           name: tc.function.name,
-          args: {},
-          result: errText,
-          success: false,
+          args,
+          result: resultStr,
+          success: toolResult.success,
         });
-        messages.push({
+
+        return {
           role: 'tool',
           tool_call_id: tc.id,
-          content: errText,
-        });
-        continue;
-      }
+          content: resultStr,
+        };
+      }),
+    );
 
-      onLog(`Tool: ${tc.function.name}(${truncateArgs(args)})`);
-
-      // Execute the tool
-      const toolResult = await window.api.tools.execute(tc.function.name, args, {
-        taskId: activeTaskId ?? undefined,
-        productMode,
-      });
-
-      const resultStr = toolResult.success
-        ? JSON.stringify(toolResult.result)
-        : `Error: ${toolResult.error}`;
-
-      onToolCallEnd({
-        id: tc.id,
-        name: tc.function.name,
-        args,
-        result: resultStr,
-        success: toolResult.success,
-      });
-
-      // Add tool result message
-      messages.push({
-        role: 'tool',
-        tool_call_id: tc.id,
-        content: resultStr,
-      });
-    }
+    messages.push(...toolMessages);
 
     const guardStop = stopReason({
       toolCallsTotal: totalToolCalls,

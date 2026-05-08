@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { useApp } from '../store/appStore';
 import { useSettings } from '../store/settingsStore';
 import { sendChatCompletion, FREE_ROUTER_MODEL } from '../lib/openrouterClient';
@@ -10,7 +10,7 @@ import {
   getSessionCompletionTokensUsed,
 } from '../lib/usageBudget';
 import { estimateTokens } from './TokenMeter';
-import { buildTaskReceiptMarkdown } from '../lib/taskReceipt';
+import { buildTaskReceiptMarkdown, buildToolAuditExportPayload } from '../lib/taskReceipt';
 import {
   ACTION_PROMPTS,
   buildContextSummaryLine,
@@ -44,12 +44,17 @@ import { expandRouterCommandLanguage } from '../lib/routerCommandLanguage';
 import { applyPlanMarkers, defaultAgentPlan } from '../lib/planMarkers';
 import { deriveTaskTitle, looksLikeConcreteRepoWork, newTaskId, parseLastMarker } from '../lib/agentLoop';
 import { runToolLoop } from '../lib/toolLoop';
+import { buildToolSessionGuide } from '../lib/toolPromptGuide';
 import { likelyNoToolsOpenRouterModel, isOpenRouterToolUseUnsupportedError } from '../lib/modelCapabilities';
 import { chatModalitiesForOpenRouter } from '../lib/openrouterMultimodal';
+import {
+  enrichVideoPromptForApi,
+  frameImagesFromComposerAttachments,
+  workspaceFolderDisplayName,
+} from '../lib/videoAttachmentPayload';
 import { isAgentProtocolProductMode } from '../../shared/productMode';
 import { useTasks } from '../store/tasksStore';
 import { useTools } from '../store/toolsStore';
-import ToolCallCard from './ToolCallCard';
 import VideoGenerationModal from './VideoGenerationModal';
 import { SuggestedActions } from './SuggestedActions';
 import { ContextIndicator } from './ContextIndicator';
@@ -69,12 +74,125 @@ import type {
   ChatMessage as ChatMessagePayload,
   ComposerSessionState,
   OpenRouterVideoSubmitRequest,
+  ProductMode,
   TaskPlanStep,
   ToolCall,
 } from '../../shared/types';
 import type { ChatMsg } from '../store/appStore';
 
-export default function AiPanel() {
+/** Single-line previews for AI tool argument / result blobs. */
+function summarizeSnippet(s: string, maxLen: number): string {
+  const t = s.replace(/\s+/g, ' ').trim();
+  if (!t.length) return '—';
+  if (t.length <= maxLen) return t;
+  return `${t.slice(0, maxLen)}…`;
+}
+
+function toolSurfaceLabel(mode: ProductMode): string {
+  switch (mode) {
+    case 'chat':
+    case 'learn':
+    case 'architect':
+    case 'review':
+      return 'Read-only subset';
+    case 'ship':
+      return 'Ship allowlist';
+    case 'edit':
+    case 'agent':
+    default:
+      return 'Full toolbox';
+  }
+}
+
+/** Workspace-facing tools strip: exposes count, safety toggles, and folder scope. */
+function ToolsStatusRail() {
+  const settings = useSettings((s) => s.settings);
+  const projectRoot = useApp((s) => s.projectRoot);
+  const toolDefinitions = useTools((s) => s.toolDefinitions);
+  const toolsLoading = useTools((s) => s.loading);
+  const definitionsError = useTools((s) => s.definitionsError);
+  const lastToastErrRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!definitionsError) {
+      lastToastErrRef.current = undefined;
+      return;
+    }
+    if (lastToastErrRef.current === definitionsError) return;
+    lastToastErrRef.current = definitionsError;
+    toast.error('Tool definitions failed', definitionsError);
+  }, [definitionsError]);
+
+  const folderLabel = workspaceFolderDisplayName(projectRoot);
+  const mode = settings.productMode;
+  const surface = toolSurfaceLabel(mode);
+
+  const extras: string[] = [];
+  if (settings.agentSandboxMode) extras.push('Sandbox');
+  if (settings.agentDryRunMode) extras.push('Dry-run');
+
+  if (!settings.toolsEnabled) {
+    return (
+      <div className="border-t border-border-soft/40 px-3 py-1 text-[10px] leading-snug text-fg-muted ds-transition">
+        <span className="font-medium text-fg-subtle">Tools</span> —{' '}
+        <span title="Toggle in Settings → Agent or the More menu.">Off (enable agent tools to use the codebase)</span>
+      </div>
+    );
+  }
+
+  if (definitionsError) {
+    return (
+      <div className="border-t border-border-soft/40 bg-danger/[0.08] px-3 py-1 text-[10px] leading-snug text-danger ds-transition">
+        <span className="font-medium">Tools</span> — Could not load definitions: {definitionsError}
+      </div>
+    );
+  }
+
+  const n = toolDefinitions.length;
+  const sandboxLine =
+    extras.length ? ` · ${extras.join(' · ')}` : '';
+  const workspaceLine = folderLabel ?
+    ` · Workspace: ${folderLabel}`
+  : ' · No folder open (filesystem tools need a workspace)';
+
+  return (
+    <div
+      className="border-t border-border-soft/40 px-3 py-1 text-[10px] leading-snug text-fg-muted ds-transition"
+      title="Tool list refreshes when you change product mode or sandbox. Discover → edit → verify is suggested in the system prompt when tools run."
+    >
+      <span className="font-medium text-fg-subtle">Tools</span>
+      {toolsLoading ?
+        <> — Loading… </>
+      : n > 0 ?
+        <>
+          {' '}
+          · {n} exposed · Mode: <span className="text-fg-subtle">{mode}</span> · {surface}
+          {sandboxLine}
+          {workspaceLine}
+        </>
+      : <>
+          {' '}
+          · <span className="text-accent">Waiting for definitions</span> · {surface}
+          {sandboxLine}
+          {workspaceLine}
+        </>}
+    </div>
+  );
+}
+
+/** Cap rendered chat rows for very long threads (full messages stay in session). */
+const CHAT_VISIBLE_CAP = 120;
+
+function AiWorkingSpinner({ className }: { className?: string }) {
+  return (
+    <span
+      className={`inline-block h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-accent border-t-transparent ${className ?? ''}`}
+      aria-hidden
+    />
+  );
+}
+
+function AiPanel() {
   const chat = useApp((s) => s.chat);
   const addChatMessage = useApp((s) => s.addChatMessage);
   const updateChatMessage = useApp((s) => s.updateChatMessage);
@@ -92,22 +210,34 @@ export default function AiPanel() {
   const selectedCode = useApp((s) => s.selectedCode);
   const fileTree = useApp((s) => s.fileTree);
   const projectRoot = useApp((s) => s.projectRoot);
+  const projectLoading = useApp((s) => s.projectLoading);
+  const projectLoadingLabel = useApp((s) => s.projectLoadingLabel);
+  const pickAndOpenProjectFolder = useApp((s) => s.pickAndOpenProjectFolder);
+  const setShowTasks = useApp((s) => s.setShowTasks);
   const models = useApp((s) => s.models);
   const aiPanelFocused = useApp((s) => s.aiPanelFocused);
   const setAiPanelFocused = useApp((s) => s.setAiPanelFocused);
   const setShowSettings = useApp((s) => s.setShowSettings);
 
   const settings = useSettings((s) => s.settings);
+  const updateSettings = useSettings((s) => s.update);
   const rules = useRules((s) => s.rules);
   const activeRuleCount = useMemo(() => rules.filter((r) => r.enabled).length, [rules]);
   const attachments = useApp((s) => s.attachments);
   const addAttachment = useApp((s) => s.addAttachment);
+  const removeAttachment = useApp((s) => s.removeAttachment);
   const clearAttachments = useApp((s) => s.clearAttachments);
 
-  // Tool definitions
-  const toolDefinitions = useTools((s) => s.toolDefinitions);
-  const toolExecutions = useTools((s) => s.executions);
-  const clearToolExecutions = useTools((s) => s.clearExecutions);
+  const videoModalComposerSeedUrls = useMemo(
+    () =>
+      attachments
+        .filter((a) => a.kind === 'image' && (a.imageUrl ?? '').trim())
+        .map((a) => a.imageUrl!.trim())
+        .slice(0, 2),
+    [attachments],
+  );
+
+  // Tool definitions (avoid subscribing to `executions` / unused defs — heavy re-renders during agent runs)
   const loadToolDefinitions = useTools((s) => s.loadDefinitions);
 
   const [input, setInput] = useState('');
@@ -151,7 +281,35 @@ export default function AiPanel() {
     );
   }, [projectRoot]);
 
+  const copyTaskReceiptJson = useCallback(() => {
+    const payload = buildToolAuditExportPayload({
+      chat: useApp.getState().chat,
+      executions: useTools.getState().executions.values(),
+      projectRoot,
+    });
+    const text = JSON.stringify(payload, null, 2);
+    void navigator.clipboard.writeText(text).then(
+      () => toast.success('Copied', 'Tool audit JSON'),
+      () => toast.error('Clipboard', 'Could not copy'),
+    );
+  }, [projectRoot]);
+
   const [busy, setBusy] = useState(false);
+  const toolExecutions = useTools((s) => s.executions);
+  const hasToolsInFlight = useMemo(
+    () =>
+      [...toolExecutions.values()].some((e) =>
+        e.status === 'pending' || e.status === 'approved' || e.status === 'executing',
+      ),
+    [toolExecutions],
+  );
+  const aiWorking = useMemo(
+    () =>
+      busy ||
+      hasToolsInFlight ||
+      chat.some((m) => m.role === 'assistant' && m.streaming),
+    [busy, hasToolsInFlight, chat],
+  );
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [ctxCurrentFile, setCtxCurrentFile] = useState(true);
   const [ctxSelection, setCtxSelection] = useState(true);
@@ -181,6 +339,38 @@ export default function AiPanel() {
   const queueBlockingRef = useRef(false);
   const userMessageQueueRef = useRef<string[]>([]);
   const [queuedCount, setQueuedCount] = useState(0);
+  const [chatShowFullHistory, setChatShowFullHistory] = useState(false);
+  const [aiExtrasOpen, setAiExtrasOpen] = useState(false);
+  const aiExtrasRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!aiExtrasOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (aiExtrasRef.current && !aiExtrasRef.current.contains(e.target as Node)) {
+        setAiExtrasOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc, true);
+    return () => document.removeEventListener('mousedown', onDoc, true);
+  }, [aiExtrasOpen]);
+
+  useEffect(() => {
+    if (!aiExtrasOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAiExtrasOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [aiExtrasOpen]);
+
+  const visibleChatMessages = useMemo(() => {
+    if (chat.length <= CHAT_VISIBLE_CAP || chatShowFullHistory) return chat;
+    return chat.slice(-CHAT_VISIBLE_CAP);
+  }, [chat, chatShowFullHistory]);
+
+  useEffect(() => {
+    if (chat.length <= CHAT_VISIBLE_CAP) setChatShowFullHistory(false);
+  }, [chat.length]);
 
   useEffect(() => {
     setCtxTree(settings.includeProjectTree);
@@ -188,7 +378,11 @@ export default function AiPanel() {
   }, [settings.includeProjectTree, settings.includeFullFile]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+    const id = requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(id);
   }, [chat]);
 
   useEffect(() => {
@@ -632,7 +826,16 @@ export default function AiPanel() {
               const ac = new AbortController();
               toolLoopAbortRef.current = ac;
               try {
+                let orderedToolUiChain = Promise.resolve();
+                const enqueueToolUi = (fn: () => void) => {
+                  orderedToolUiChain = orderedToolUiChain.then(() => Promise.resolve(fn()));
+                };
                 try {
+                  const toolSessionGuide = buildToolSessionGuide(defs.map((d) => d.function.name));
+                  const loopSystemPrompt =
+                    toolSessionGuide.trim().length > 0 ?
+                      `${systemPrompt}\n\n${toolSessionGuide}`
+                    : systemPrompt;
                   const loopResult = await runToolLoop({
                     apiKey: routing.apiKey,
                     openAiBaseUrl: routing.openAiBaseUrl,
@@ -640,7 +843,7 @@ export default function AiPanel() {
                     completionFallbackModels: settings.completionFallbackModels,
                     model: readModelForTools,
                     reasoningModel: routeSmart ? reasoningModel : undefined,
-                    systemPrompt,
+                    systemPrompt: loopSystemPrompt,
                     history: historyChat,
                     userContent,
                     temperature: settings.temperature,
@@ -658,8 +861,48 @@ export default function AiPanel() {
                         });
                       }
                     },
-                    onToolCallStart: () => {},
-                    onToolCallEnd: () => {},
+                    onToolCallStart: ({ id: toolId, name, args }) =>
+                      enqueueToolUi(() => {
+                        const cur = useApp.getState().chat.find((m) => m.id === assistId);
+                        const prev = cur?.toolCallLive ?? [];
+                        updateChatMessage(assistId, {
+                          toolCallLive: [
+                            ...prev.filter((r) => r.id !== toolId),
+                            {
+                              id: toolId,
+                              name,
+                              argsSnippet: summarizeSnippet(args ?? '', 220),
+                              status: 'running',
+                            },
+                          ],
+                        });
+                      }),
+                    onToolCallEnd: ({ id: toolId, name, args, result, success }) =>
+                      enqueueToolUi(() => {
+                        const cur = useApp.getState().chat.find((m) => m.id === assistId);
+                        const prev = cur?.toolCallLive ?? [];
+                        const rows = [...prev];
+                        const i = rows.findIndex((r) => r.id === toolId);
+                        const base =
+                          i >= 0 ?
+                            rows[i]!
+                          : {
+                              id: toolId,
+                              name,
+                              argsSnippet: summarizeSnippet(JSON.stringify(args), 200),
+                              status: 'running' as const,
+                            };
+                        const merged = {
+                          ...base,
+                          name,
+                          status:
+                            success ? ('success' as const) : ('error' as const),
+                          resultSnippet: summarizeSnippet(result, 320),
+                        };
+                        if (i >= 0) rows[i] = merged;
+                        else rows.push(merged);
+                        updateChatMessage(assistId, { toolCallLive: rows });
+                      }),
                     onLog: (m) => pushLog('info', m),
                     onMessagesUpdate: () => {},
                   });
@@ -754,6 +997,7 @@ export default function AiPanel() {
           content: result.content,
           modelUsed: result.modelUsed,
           streaming: false,
+          toolCallLive: undefined,
         });
         pushLog('info', `✓ Response from ${result.modelUsed}`);
 
@@ -878,7 +1122,7 @@ export default function AiPanel() {
         }
       } catch (e) {
         const msg = (e as Error).message;
-        updateChatMessage(assistId, { streaming: false, error: msg });
+        updateChatMessage(assistId, { streaming: false, error: msg, toolCallLive: undefined });
         pushLog('error', msg);
         if (settings.agentMode && taskId) {
           await persistTask(taskId, {
@@ -971,11 +1215,25 @@ export default function AiPanel() {
       }
       const model =
         req.model?.trim() || resolveVideoJobModelId(settings, models, freeModeEnabled);
+      const rawPrompt = (req.prompt ?? '').trim();
+      const frameParts = req.frame_images ?? [];
+      const hasFirstFrame = frameParts.some((f) => f.frame_type === 'first_frame');
+      const hasLastFrame = frameParts.some((f) => f.frame_type === 'last_frame');
+      const refCount = req.input_references?.length ?? 0;
+      const referenceOnlyVisual = refCount > 0 && frameParts.length === 0;
       const body: OpenRouterVideoSubmitRequest = {
         ...req,
         model,
-        prompt: req.prompt.trim(),
+        prompt: enrichVideoPromptForApi(rawPrompt, {
+          projectFolderLabel: workspaceFolderDisplayName(projectRoot ?? null),
+          activeRelativeFile: activeTabPath?.trim() || null,
+          hasFirstFrame,
+          hasLastFrame,
+          referenceOnlyVisual,
+          silentVideoDesired: req.generate_audio === false,
+        }),
       };
+
       const explicitVideo = settings.openRouterVideoModel?.trim();
       if (
         !explicitVideo &&
@@ -990,7 +1248,12 @@ export default function AiPanel() {
       }
       const userId = crypto.randomUUID();
       const assistId = crypto.randomUUID();
-      const displayLine = `/video ${body.prompt}`;
+      const vizCount =
+        (body.frame_images?.length ?? 0) + (body.input_references?.length ?? 0);
+      const displayLine =
+        vizCount > 0
+          ? `/video ${rawPrompt}\n_(with ${vizCount} visual conditioning input${vizCount === 1 ? '' : 's'})_`
+          : `/video ${rawPrompt}`;
       addChatMessage({
         id: userId,
         role: 'user',
@@ -1078,6 +1341,8 @@ export default function AiPanel() {
       settings.openRouterVideoModel,
       freeModeEnabled,
       models,
+      projectRoot,
+      activeTabPath,
       addChatMessage,
       updateChatMessage,
       setShowSettings,
@@ -1280,12 +1545,25 @@ export default function AiPanel() {
                   settings.openRouterVideoAspectRatio?.trim() ||
                   undefined;
                 const res = settings.openRouterVideoResolution?.trim() || undefined;
+                const framePayload = frameImagesFromComposerAttachments(attachments);
+                const hasRef = (framePayload.frame_images?.length ?? 0) > 0;
+                const aud = settings.openRouterVideoAudio;
+                const generate_audio = aud === 'on' ? true : aud === 'off' ? false : undefined;
                 void runOpenRouterVideoJob({
                   model,
                   prompt: openRouterVideo.prompt,
                   ...(ar ? { aspect_ratio: ar } : {}),
                   ...(res ? { resolution: res } : {}),
+                  ...(generate_audio !== undefined ? { generate_audio } : {}),
+                  ...framePayload,
                 });
+                if (hasRef) {
+                  const imgAtts = attachments.filter(
+                    (a) => a.kind === 'image' && (a.imageUrl ?? '').trim(),
+                  );
+                  const used = imgAtts.slice(0, 2);
+                  for (const a of used) removeAttachment(a.id);
+                }
               }
               return;
             case '[[OPENROUTER_TTS]]':
@@ -1319,6 +1597,8 @@ export default function AiPanel() {
       runOpenRouterVideoJob,
       runOpenRouterTtsJob,
       submitChat,
+      attachments,
+      removeAttachment,
     ],
   );
 
@@ -1457,76 +1737,253 @@ export default function AiPanel() {
 
   return (
     <div
-      className="relative flex h-full min-h-0 min-w-0 flex-col"
+      className="relative flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden"
       onDragEnter={onDragEnter}
       onDragLeave={onDragLeave}
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <div className="ai-chrome-header flex flex-col gap-2 px-3 py-2 ds-transition">
+      <div className="ai-chrome-header shrink-0 border-b border-border-soft/55 px-3 py-2 ds-transition">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="flex shrink-0 items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-accent shadow-[0_0_12px_rgb(var(--color-accent-default)/0.55)]" aria-hidden />
-            <span className="text-xs font-semibold tracking-tight text-fg">AI Assistant</span>
+          <div
+            className="flex shrink-0 items-center gap-2"
+            title={aiWorking ? 'Assistant is responding or running tools…' : ''}
+          >
+            {aiWorking ? (
+              <>
+                <AiWorkingSpinner className="text-accent" />
+                <span className="text-xs font-semibold tracking-tight text-accent">Working…</span>
+              </>
+            ) : (
+              <>
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full bg-accent shadow-[0_0_10px_rgb(var(--color-accent-default)/0.45)]"
+                  aria-hidden
+                />
+                <span className="section-label !tracking-[0.1em]">AI Assistant</span>
+              </>
+            )}
           </div>
-          <ContextIndicator />
-          <span
-            className="min-w-0 flex-1 truncate text-[10px] leading-tight text-fg-subtle"
-            title="Rough context footprint + completion cap; budgets count completion tokens reported by the provider after each API hop."
-          >
-            {settings.aiCompletionProvider === 'local_openai' ? 'Local LLM' : 'OpenRouter'} · ~
-            {roughOutgoingPromptTokens.toLocaleString()} tok · cap ↓{settings.maxTokens.toLocaleString()}
-            {settings.sessionCompletionTokenBudget > 0
-              ? ` · sess ${getSessionCompletionTokensUsed().toLocaleString()}/${settings.sessionCompletionTokenBudget.toLocaleString()}`
-              : ''}
-            {settings.dailyCompletionTokenBudget > 0
-              ? ` · day ${getDailyCompletionTokensUsed().toLocaleString()}/${settings.dailyCompletionTokenBudget.toLocaleString()}`
-              : ''}
+          <div className="min-h-[1.25rem] min-w-0 flex-1 overflow-hidden">
+            <ContextIndicator />
+          </div>
+        </div>
+        <ToolsStatusRail />
+      </div>
+
+      <div
+        ref={aiExtrasRef}
+        className="relative flex shrink-0 flex-wrap items-center gap-2 border-b border-border-soft/80 px-3 py-2 ds-transition"
+      >
+        <button
+          type="button"
+          className="flex min-w-0 max-w-[min(100%,15rem)] items-center gap-2 rounded-lg border border-border-soft bg-bg-soft/50 px-2.5 py-1.5 text-left text-[11px] shadow-sm transition-colors hover:border-accent/30 hover:bg-bg-hover"
+          onClick={() => setShowModelPicker(true)}
+          title={
+            freeModeEnabled
+              ? 'Browse models (Free Mode). Ctrl/Cmd+Shift+M'
+              : 'Choose model — Ctrl/Cmd+Shift+M'
+          }
+        >
+          <span className="shrink-0 text-fg-muted">Model</span>
+          <span className="truncate font-medium text-fg">
+            {freeModeEnabled ? 'Free Mode' : modelToolbarLabel}
           </span>
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="rounded-md border border-accent/50 bg-accent/15 px-2 py-1 text-[11px] font-semibold text-accent shadow-sm transition-colors duration-layout hover:bg-accent/25"
-            onClick={openVideoGenerationModal}
-            title="OpenRouter video: pick model, prompt, optional frames (async API)"
+          {!freeModeEnabled && modelMeta && !isRouterStudioAuto(settings.defaultModel) && (
+            <span
+              className={
+                'shrink-0 rounded px-1 py-0 text-[9px] font-semibold ' +
+                (modelMeta.priceTier === 'free'
+                  ? 'bg-success/20 text-success'
+                  : modelMeta.priceTier === 'cheap'
+                    ? 'bg-accent/20 text-accent'
+                    : modelMeta.priceTier === 'mid'
+                      ? 'bg-warn/15 text-warn'
+                      : 'bg-danger/15 text-danger')
+              }
+            >
+              {modelMeta.priceTier === 'free'
+                ? 'FREE'
+                : modelMeta.priceTier === 'cheap'
+                  ? '$'
+                  : modelMeta.priceTier === 'mid'
+                    ? '$$'
+                    : '$$$'}
+            </span>
+          )}
+        </button>
+        <ModeSwitcher compact />
+        {conversationBranches.length > 0 ? <BranchSelector /> : null}
+        <div className="min-w-2 flex-1" aria-hidden />
+        <button
+          type="button"
+          className="rounded-lg border border-border-soft bg-bg-soft/70 px-2.5 py-1.5 text-[11px] font-medium text-fg-muted shadow-sm transition-colors hover:border-accent/35 hover:bg-bg-hover hover:text-fg"
+          aria-expanded={aiExtrasOpen}
+          aria-haspopup="menu"
+          onClick={() => setAiExtrasOpen((o) => !o)}
+        >
+          More
+        </button>
+        {aiExtrasOpen ? (
+          <div
+            className="absolute right-3 top-[calc(100%+2px)] z-[200020] w-[min(100vw-1.25rem,17.5rem)] overflow-hidden rounded-lg border border-border bg-bg-elevated py-1 shadow-float ring-1 ring-subtle"
+            role="menu"
           >
-            Generate video
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-border-soft bg-bg-soft px-2 py-1 text-[11px] font-medium text-fg-muted shadow-sm transition-colors duration-layout hover:bg-bg-hover hover:text-fg"
-            onClick={copyTaskReceiptMd}
-            title="Copy markdown summary of recent chat + tool runs (for PRs / tickets)"
-          >
-            Receipt
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-border-soft bg-bg-soft px-2 py-1 text-[11px] font-medium text-fg-muted shadow-sm transition-colors duration-layout hover:bg-bg-hover hover:text-fg"
-            onClick={() => useApp.getState().setShowTasks(true)}
-            title="Saved tasks (Ctrl+Shift+T)"
-          >
-            Tasks
-          </button>
-          {conversationBranches.length > 0 && <BranchSelector />}
-          <button
-            type="button"
-            className="rounded-md border border-border-soft bg-bg-soft px-2 py-1 text-[11px] font-medium text-fg-muted shadow-sm transition-colors duration-layout hover:bg-bg-hover hover:text-fg"
-            onClick={() => useApp.getState().setShowRules(true)}
-            title="Manage rules / skill files (Ctrl+Shift+R)"
-          >
-            Rules ({activeRuleCount})
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-border-soft bg-bg-soft px-2 py-1 text-[11px] font-medium text-fg-muted shadow-sm transition-colors duration-layout hover:bg-bg-hover hover:text-fg"
-            onClick={settings.agentMode ? startNewTask : clearChatAndQueue}
-            title={settings.agentMode ? 'Start a new agent task' : 'Clear conversation'}
-          >
-            {settings.agentMode ? 'New task' : 'Clear'}
-          </button>
-        </div>
+            <div className="border-b border-border-soft/70 px-3 py-2 text-[10px] leading-snug text-fg-subtle">
+              <div className="font-medium text-fg-muted">
+                {settings.aiCompletionProvider === 'local_openai' ? 'Local LLM' : 'OpenRouter'}
+              </div>
+              <div>
+                ~{roughOutgoingPromptTokens.toLocaleString()} tok · cap ↓{settings.maxTokens.toLocaleString()}
+                {settings.sessionCompletionTokenBudget > 0
+                  ? ` · sess ${getSessionCompletionTokensUsed().toLocaleString()}/${settings.sessionCompletionTokenBudget.toLocaleString()}`
+                  : ''}
+                {settings.dailyCompletionTokenBudget > 0
+                  ? ` · day ${getDailyCompletionTokensUsed().toLocaleString()}/${settings.dailyCompletionTokenBudget.toLocaleString()}`
+                  : ''}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full px-3 py-2 text-left text-xs text-fg-muted hover:bg-bg-hover hover:text-fg"
+              onClick={() => {
+                copyTaskReceiptMd();
+                setAiExtrasOpen(false);
+              }}
+            >
+              Copy receipt (markdown)
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full px-3 py-2 text-left text-xs text-fg-muted hover:bg-bg-hover hover:text-fg"
+              onClick={() => {
+                copyTaskReceiptJson();
+                setAiExtrasOpen(false);
+              }}
+            >
+              Copy audit JSON
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full px-3 py-2 text-left text-xs text-fg-muted hover:bg-bg-hover hover:text-fg"
+              onClick={() => {
+                useApp.getState().setShowTasks(true);
+                setAiExtrasOpen(false);
+              }}
+            >
+              Tasks (Ctrl+Shift+T)
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full px-3 py-2 text-left text-xs text-fg-muted hover:bg-bg-hover hover:text-fg"
+              onClick={() => {
+                useApp.getState().setShowRules(true);
+                setAiExtrasOpen(false);
+              }}
+            >
+              Rules ({activeRuleCount})
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full px-3 py-2 text-left text-xs text-fg-muted hover:bg-bg-hover hover:text-fg"
+              onClick={() => {
+                if (settings.agentMode) startNewTask();
+                else clearChatAndQueue();
+                setAiExtrasOpen(false);
+              }}
+            >
+              {settings.agentMode ? 'New agent task' : 'Clear conversation'}
+            </button>
+            <div className="my-1 h-px bg-border-soft/80" role="presentation" />
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full px-3 py-2 text-left text-xs text-fg-muted hover:bg-bg-hover hover:text-fg"
+              onClick={() => {
+                setShowComposerPanel(true);
+                setAiExtrasOpen(false);
+              }}
+            >
+              Composer workspace
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={
+                'flex w-full px-3 py-2 text-left text-xs hover:bg-bg-hover ' +
+                (showBrowserPanel ? 'font-medium text-accent' : 'text-fg-muted hover:text-fg')
+              }
+              onClick={() => {
+                setShowBrowserPanel(!showBrowserPanel);
+                setAiExtrasOpen(false);
+              }}
+            >
+              {showBrowserPanel ? 'Hide browser panel' : 'Browser preview'}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full px-3 py-2 text-left text-xs text-fg-muted hover:bg-bg-hover hover:text-fg"
+              onClick={() => {
+                openVideoGenerationModal();
+                setAiExtrasOpen(false);
+              }}
+            >
+              Video generation…
+            </button>
+            <div className="my-1 h-px bg-border-soft/80" role="presentation" />
+            <div className="space-y-2 px-3 py-2" role="group" aria-label="Chat options">
+              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-fg-muted">
+                <input
+                  type="checkbox"
+                  checked={settings.agentMode}
+                  onChange={(e) => void useSettings.getState().update({ agentMode: e.target.checked })}
+                  className="rounded border-border-soft text-accent focus:ring-accent"
+                />
+                Agent turns (multi-step tools)
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-fg-muted">
+                <input
+                  type="checkbox"
+                  checked={settings.agentSandboxMode}
+                  onChange={(e) =>
+                    void useSettings
+                      .getState()
+                      .update({ agentSandboxMode: e.target.checked })
+                      .then(() => loadToolDefinitions(settings.productMode))
+                  }
+                  className="rounded border-border-soft text-accent focus:ring-accent"
+                />
+                Sandbox writes
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-fg-muted">
+                <input
+                  type="checkbox"
+                  checked={settings.agentDryRunMode}
+                  onChange={(e) =>
+                    void useSettings.getState().update({ agentDryRunMode: e.target.checked })
+                  }
+                  className="rounded border-border-soft text-accent focus:ring-accent"
+                />
+                Dry-run tools
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-fg-muted">
+                <input
+                  type="checkbox"
+                  checked={freeModeEnabled}
+                  onChange={(e) => setFreeMode(e.target.checked)}
+                  className="rounded border-border-soft text-accent focus:ring-accent"
+                />
+                Free models only
+              </label>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {settings.agentMode && (
@@ -1544,141 +2001,19 @@ export default function AiPanel() {
         />
       )}
 
-      <div className="ai-toolbar-primary flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-b border-border-soft px-3 py-1.5 ds-transition">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="flex min-w-0 max-w-[min(100%,20rem)] items-center gap-2 truncate rounded border border-border px-2 py-0.5 text-left text-[11px] hover:bg-bg-hover"
-            onClick={() => setShowModelPicker(true)}
-            title={
-              freeModeEnabled
-                ? 'Browse models (Free Mode: only free models can be selected). Ctrl/Cmd+Shift+M'
-                : 'Choose model — Ctrl/Cmd+Shift+M'
-            }
-          >
-            <span className="text-fg-muted">Model:</span>
-            <span className="truncate text-fg">
-              {freeModeEnabled ? 'Free Mode' : modelToolbarLabel}
-            </span>
-            {!freeModeEnabled && modelMeta && !isRouterStudioAuto(settings.defaultModel) && (
-              <span
-                className={
-                  'shrink-0 rounded px-1 py-0 text-[9px] font-semibold ' +
-                  (modelMeta.priceTier === 'free'
-                    ? 'bg-success/20 text-success'
-                    : modelMeta.priceTier === 'cheap'
-                      ? 'bg-accent/20 text-accent'
-                      : modelMeta.priceTier === 'mid'
-                        ? 'bg-warn/15 text-warn'
-                        : 'bg-danger/15 text-danger')
-                }
-              >
-                {modelMeta.priceTier === 'free'
-                  ? 'FREE'
-                  : modelMeta.priceTier === 'cheap'
-                    ? '$'
-                    : modelMeta.priceTier === 'mid'
-                      ? '$$'
-                      : '$$$'}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            className="shrink-0 rounded-md border border-accent/50 bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent hover:bg-accent/25"
-            onClick={openVideoGenerationModal}
-            title="OpenRouter async video (POST /api/v1/videos)"
-          >
-            Video
-          </button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <ModeSwitcher compact />
-          <button
-            type="button"
-            className="rounded border border-border-soft bg-bg px-2 py-0.5 text-[10px] text-fg-muted hover:bg-bg-hover hover:text-fg"
-            title="Multi-file Composer"
-            onClick={() => setShowComposerPanel(true)}
-          >
-            Composer
-          </button>
-          <button
-            type="button"
-            className={
-              'rounded border px-2 py-0.5 text-[10px] ' +
-              (showBrowserPanel
-                ? 'border-accent bg-accent/15 text-accent'
-                : 'border-border-soft bg-bg text-fg-muted hover:bg-bg-hover hover:text-fg')
-            }
-            title="Browser preview (localhost) + Playwright tools for agents"
-            onClick={() => setShowBrowserPanel(!showBrowserPanel)}
-          >
-            Browser
-          </button>
-          <label
-            className="flex cursor-pointer items-center gap-1 text-[10px] text-fg-muted"
-            title="Autonomous multi-turn task mode: the agent keeps going until it emits [[TASK_COMPLETE]]."
-          >
-            <input
-              type="checkbox"
-              checked={settings.agentMode}
-              onChange={(e) => void useSettings.getState().update({ agentMode: e.target.checked })}
-            />
-            Agent
-          </label>
-          <label
-            className="flex cursor-pointer items-center gap-1 text-[10px] text-fg-muted"
-            title="Hide mutating tools from the model and block them at runtime."
-          >
-            <input
-              type="checkbox"
-              checked={settings.agentSandboxMode}
-              onChange={(e) =>
-                void useSettings
-                  .getState()
-                  .update({ agentSandboxMode: e.target.checked })
-                  .then(() => loadToolDefinitions(settings.productMode))
-              }
-            />
-            Sandbox
-          </label>
-          <label
-            className="flex cursor-pointer items-center gap-1 text-[10px] text-fg-muted"
-            title="Mutating tools return simulated JSON only (dry_run: true)."
-          >
-            <input
-              type="checkbox"
-              checked={settings.agentDryRunMode}
-              onChange={(e) =>
-                void useSettings.getState().update({ agentDryRunMode: e.target.checked })
-              }
-            />
-            Dry-run
-          </label>
-          <label className="flex cursor-pointer items-center gap-1 text-[10px] text-fg-muted">
-            <input
-              type="checkbox"
-              checked={freeModeEnabled}
-              onChange={(e) => setFreeMode(e.target.checked)}
-            />
-            Free
-          </label>
-        </div>
-      </div>
-
       {freeModeEnabled && (
-        <div className="border-b border-border-soft px-3 py-1 text-[10px] leading-snug text-fg-muted ds-transition">
+        <div className="border-b border-border-soft/80 px-3 py-1.5 text-[11px] leading-snug text-fg-muted ds-transition">
           Free Mode —{' '}
           {settings.freeModeStrategy === 'router' ? 'OpenRouter Free Router' : 'cycling :free models'}.
         </div>
       )}
 
-      <details className="border-b border-border-soft bg-bg-soft/15 open:bg-bg-soft/25">
-        <summary className="cursor-pointer list-none px-3 py-1.5 text-[11px] text-fg-muted marker:content-none [&::-webkit-details-marker]:hidden hover:bg-bg-hover/50">
-          <span className="font-medium text-fg-muted/95">Context &amp; quick prompts</span>{' '}
-          <span className="text-[10px] text-fg-subtle">— tree, selection, shortcuts</span>
+      <details className="border-b border-border-soft/70 bg-bg-soft/[0.12] open:bg-bg-soft/20">
+        <summary className="cursor-pointer list-none px-3 py-1.5 text-[11px] text-fg-muted marker:content-none [&::-webkit-details-marker]:hidden hover:bg-bg-hover/40">
+          <span className="font-medium text-fg">Context</span>{' '}
+          <span className="text-[10px] text-fg-subtle">optional chips &amp; canned prompts — expand when needed</span>
         </summary>
-        <div className="space-y-1.5 px-3 pb-2">
+        <div className="space-y-2 px-3 pb-2">
           <div className="flex flex-wrap gap-1">
             <ContextChip label="File" on={ctxCurrentFile} set={setCtxCurrentFile} title="Include active file path" />
             <ContextChip
@@ -1714,7 +2049,7 @@ export default function AiPanel() {
       </details>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div ref={scrollRef} className="chat-scroll min-h-0 flex-1 overflow-auto px-3 py-3 space-y-3">
+        <div ref={scrollRef} className="chat-scroll min-h-0 flex-1 overflow-auto space-y-3 px-4 py-4" aria-busy={aiWorking}>
         {taskCache?.plan && taskCache.plan.length > 0 ? (
           <details className="rounded-lg border border-border-soft/80 bg-bg-soft/30">
             <summary className="cursor-pointer list-none px-2 py-1.5 text-[11px] font-medium text-fg-muted marker:content-none [&::-webkit-details-marker]:hidden">
@@ -1729,23 +2064,94 @@ export default function AiPanel() {
             </div>
           </details>
         ) : null}
+        {chat.length === 0 && !settings.dismissedAiOnboardingHint ? (
+          <div className="mb-3 rounded-xl border border-accent/20 bg-accent/[0.07] px-4 py-3 text-[11px] leading-relaxed text-fg-muted shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <span className="min-w-0">
+                <strong className="text-fg">Quick start:</strong> open a folder (Ctrl+O), pick a model (Ctrl+Shift+M),
+                type your question, then Ctrl/Cmd+Enter to send. Use <strong className="text-fg-muted">More</strong> above
+                for tasks, rules, receipts, tools, and options.
+              </span>
+              <button
+                type="button"
+                className="shrink-0 rounded-lg border border-border-soft bg-bg-soft/80 px-2.5 py-1 text-[10px] font-medium text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+                onClick={() => void updateSettings({ dismissedAiOnboardingHint: true })}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        ) : null}
         {chat.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border-soft bg-bg-soft/40 px-4 py-8 text-center">
-            <div className="mb-1 text-base font-medium text-fg">Ask anything about your code</div>
-            <div className="text-xs text-fg-muted">
-              Use the model picker and expand <strong>Context &amp; quick prompts</strong> for file/tree shortcuts. Ctrl/Cmd+Enter to send.
+          <div className="min-w-0 space-y-5">
+            <div className="rounded-xl border border-dashed border-border-soft/90 bg-gradient-to-b from-bg-soft/50 to-bg-deep/40 px-4 py-5 text-center shadow-sm sm:px-6">
+              <div className="mb-1 text-base font-semibold tracking-tight text-fg">Ask anything about your code</div>
+              <p className="mx-auto max-w-md text-[13px] leading-relaxed text-fg-muted">
+                Pick your model above, typed prompts &amp; <span className="text-fg-subtle">Ctrl/Cmd+Enter</span> to send.
+              </p>
+            </div>
+            <div>
+              <div className="mb-2 px-0.5 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+                Quick links
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  className="ai-quick-action-card disabled:cursor-wait disabled:opacity-70"
+                  onClick={() => void pickAndOpenProjectFolder()}
+                  disabled={projectLoading}
+                >
+                  <span className="text-base" aria-hidden>📂</span>
+                  <span className="text-xs font-semibold text-fg">
+                    {projectLoading ? projectLoadingLabel ?? 'Opening folder...' : 'Open a folder'}
+                  </span>
+                  <span className="text-[10px] leading-snug text-fg-muted">Ctrl+O</span>
+                </button>
+                <button
+                  type="button"
+                  className="ai-quick-action-card"
+                  onClick={() => setShowModelPicker(true)}
+                >
+                  <span className="text-base" aria-hidden>✨</span>
+                  <span className="text-xs font-semibold text-fg">Choose a model</span>
+                  <span className="text-[10px] leading-snug text-fg-muted">Ctrl+Shift+M</span>
+                </button>
+                <button
+                  type="button"
+                  className="ai-quick-action-card"
+                  onClick={() => setShowTasks(true)}
+                >
+                  <span className="text-base" aria-hidden>🗂️</span>
+                  <span className="text-xs font-semibold text-fg">Tasks</span>
+                  <span className="text-[10px] leading-snug text-fg-muted">Ctrl+Shift+T</span>
+                </button>
+              </div>
             </div>
           </div>
         ) : (
-          chat.map((m) => (
-            <ChatMessage
-              key={m.id}
-              msg={m}
-              onEdit={handleChatEdit}
-              onDelete={handleChatDeleteFrom}
-              onFork={handleChatFork}
-            />
-          ))
+          <>
+            {chat.length > CHAT_VISIBLE_CAP && !chatShowFullHistory ? (
+              <div className="rounded-lg border border-border-soft bg-bg-soft/60 px-3 py-2 text-[11px] leading-snug text-fg-muted">
+                Showing the last {CHAT_VISIBLE_CAP} messages ({chat.length} in thread).{' '}
+                <button
+                  type="button"
+                  className="font-medium text-accent hover:underline"
+                  onClick={() => setChatShowFullHistory(true)}
+                >
+                  Load full history
+                </button>
+              </div>
+            ) : null}
+            {visibleChatMessages.map((m) => (
+              <ChatMessage
+                key={m.id}
+                msg={m}
+                onEdit={handleChatEdit}
+                onDelete={handleChatDeleteFrom}
+                onFork={handleChatFork}
+              />
+            ))}
+          </>
         )}
 
         {/* Suggested actions after the last assistant message */}
@@ -1787,7 +2193,7 @@ export default function AiPanel() {
         </div>
       ) : null}
 
-      <div className="relative border-t border-border-soft bg-gradient-to-b from-bg-elevated to-bg-soft p-3">
+      <div className="relative border-t border-border-soft bg-gradient-to-b from-bg-elevated/95 to-bg-soft/90 p-4">
         <SlashCommandMenu
           input={input}
           onSelect={handleSlashCommandSelect}
@@ -1816,17 +2222,17 @@ export default function AiPanel() {
           aria-label="AI chat message input"
           className="prompt-input-ds w-full resize-none text-sm leading-relaxed text-fg placeholder:text-fg-subtle disabled:opacity-60"
         />
-        <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-subtle">
+        <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-fg-muted">
           <div className="flex flex-wrap items-center gap-2">
             <AttachmentMenu />
             <button
               type="button"
               disabled={busy}
               onClick={openVideoGenerationModal}
-              className="rounded-md border border-accent/50 bg-accent/10 px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-40"
-              title="Generate video (OpenRouter) — opens setup modal"
+              className="rounded-md border border-border-soft bg-transparent px-2 py-1 text-[11px] font-medium text-fg-muted transition-colors hover:border-accent/40 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+              title="Video generation (modal)"
             >
-              Generate video
+              Video…
             </button>
             {attachments.length > 0 && (
               <span className="text-fg-muted">
@@ -1878,7 +2284,7 @@ export default function AiPanel() {
                 setShowSlashMenu(false);
                 void dispatchUserInput(v);
               }}
-              className="rounded-lg bg-accent px-4 py-1.5 text-xs font-semibold text-white shadow-md shadow-accent/25 hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+              className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-white shadow-md shadow-accent/20 transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:border disabled:border-border-soft disabled:bg-bg-elevated disabled:text-fg-subtle disabled:opacity-100 disabled:shadow-none"
             >
               Send
             </button>
@@ -1892,12 +2298,30 @@ export default function AiPanel() {
         onGenerate={(req) => {
           setShowVideoGenModal(false);
           void runOpenRouterVideoJob(req);
+          const frames = req.frame_images ?? [];
+          const imgs = attachments.filter(
+            (a) => a.kind === 'image' && (a.imageUrl ?? '').trim(),
+          );
+          const pairs = Math.min(frames.length, imgs.length, 2);
+          for (let i = 0; i < pairs; i += 1) {
+            const got = frames[i]?.image_url?.url?.trim();
+            const imgUrl = imgs[i]?.imageUrl?.trim();
+            if (
+              imgUrl &&
+              got &&
+              got === imgUrl &&
+              imgs[i]
+            ) {
+              removeAttachment(imgs[i]!.id);
+            }
+          }
         }}
         busy={busy}
         settings={settings}
         models={models}
         freeModeEnabled={freeModeEnabled}
         initialPrompt={videoGenSeedPrompt}
+        composerSeedImageUrls={videoModalComposerSeedUrls}
       />
 
       <ComposerPanel
@@ -2125,6 +2549,8 @@ function AgentStatusBar({
     </div>
   );
 }
+
+export default memo(AiPanel);
 
 function ActionBtn({ label, onClick }: { label: string; onClick: () => void }) {
   return (

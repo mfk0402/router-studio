@@ -2,6 +2,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { RegisteredTool, ToolHandlerResult } from '../../../shared/types.js';
 import { assertSensitivePathAllowed } from '../../security/sensitiveFileGuard.js';
+import { resolveWithinRoot } from '../../security/pathValidation.js';
+import { toErrnoException } from '../../../shared/errorUtils.js';
 
 export const tool: RegisteredTool = {
   name: 'read_file',
@@ -53,12 +55,13 @@ export const tool: RegisteredTool = {
     }
 
     // Security: ensure path doesn't escape project root
-    const absPath = path.resolve(ctx.projectRoot, relativePath);
-    if (!absPath.startsWith(ctx.projectRoot)) {
+    const resolved = resolveWithinRoot(ctx.projectRoot, relativePath);
+    if (!resolved) {
       return { success: false, error: 'Path must be within the project root.' };
     }
+    const absPath = resolved.absPath;
 
-    const sens = await assertSensitivePathAllowed(ctx.projectRoot, relativePath);
+    const sens = await assertSensitivePathAllowed(ctx.projectRoot, resolved.relativePath);
     if (!sens.ok) {
       return { success: false, error: sens.error };
     }
@@ -107,7 +110,7 @@ export const tool: RegisteredTool = {
         },
       };
     } catch (e) {
-      const err = e as NodeJS.ErrnoException;
+      const err = toErrnoException(e);
       if (err.code === 'ENOENT') {
         return { success: false, error: `File not found: ${relativePath}` };
       }

@@ -25,7 +25,7 @@ export default {
           DEFAULT: 'rgb(var(--color-accent-default) / <alpha-value>)',
           muted: 'rgb(var(--color-accent-muted) / <alpha-value>)',
           fg: 'rgb(var(--color-accent-fg) / <alpha-value>)',
-          /** Doc `#22D3EE` — tab underline, neon highlights (router_studio_design_system.md §4, §15). */
+          /** Brighter accent for tab lines / highlights (see `--color-accent-electric`). */
           electric: 'rgb(var(--color-accent-electric) / <alpha-value>)',
         },
         cyan: 'rgb(var(--color-cyan) / <alpha-value>)',

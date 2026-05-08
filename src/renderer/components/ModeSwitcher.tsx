@@ -5,6 +5,7 @@ import { useTools } from '../store/toolsStore';
 
 const LABELS: Record<ProductMode, string> = {
   chat: 'Chat',
+  learn: 'Learn',
   edit: 'Edit',
   agent: 'Agent',
   architect: 'Architect',
@@ -22,7 +23,7 @@ export function ModeSwitcher({ compact = false }: { compact?: boolean }) {
       <span className="sr-only">Product mode</span>
       <select
         value={mode}
-        title="Working mode (tools + prompts): Chat / Edit / Agent / Architect / Review / Ship. Shortcut: Ctrl+Shift+1…6"
+        title="Working mode (tools + prompts): Chat / Learn / Edit / Agent / Architect / Review / Ship. Shortcut: Ctrl+Shift+1…7"
         onChange={(e) => {
           const pm = e.target.value as ProductMode;
           void update({ productMode: pm }).then(() => loadDefinitions(pm));

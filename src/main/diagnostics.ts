@@ -8,6 +8,7 @@ import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { Diagnostic, DiagnosticsByFile, DiagnosticSeverity } from '../shared/diagnostics.js';
 import { getRoot } from './fileSystem.js';
+import { getLspDiagnosticsByFile } from './lspHost.js';
 
 /**
  * Parse TypeScript compiler output
@@ -282,6 +283,12 @@ export async function runAllDiagnostics(): Promise<DiagnosticsByFile> {
     byFile[diag.file].push(diag);
   }
 
+  const lspMerged = getLspDiagnosticsByFile();
+  for (const [relFs, lspList] of Object.entries(lspMerged)) {
+    if (!byFile[relFs]) byFile[relFs] = [];
+    byFile[relFs].push(...lspList);
+  }
+
   // Sort each file's diagnostics by line number
   for (const file of Object.keys(byFile)) {
     byFile[file].sort((a, b) => a.range.start.line - b.range.start.line);
@@ -297,6 +304,9 @@ export async function runDiagnosticsForFile(filePath: string): Promise<Diagnosti
   const rootPath = getRoot();
   if (!rootPath) return [];
 
+  const normalized = filePath.replace(/\\/g, '/');
+  const lspForFile = getLspDiagnosticsByFile()[normalized] ?? [];
+
   const ext = path.extname(filePath).toLowerCase();
 
   if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) {
@@ -306,13 +316,19 @@ export async function runDiagnosticsForFile(filePath: string): Promise<Diagnosti
       runEslint(rootPath).catch(() => []),
     ]);
 
-    return [...tsDiags, ...eslintDiags].filter((d) => d.file === filePath || d.file === filePath.replace(/\\/g, '/'));
+    const merged = [...tsDiags, ...eslintDiags].filter(
+      (d) => d.file === filePath || d.file === normalized,
+    );
+    return [...merged, ...lspForFile];
   }
 
   if (ext === '.py') {
     const pyDiags = await runPythonLinter(rootPath).catch(() => []);
-    return pyDiags.filter((d) => d.file === filePath || d.file === filePath.replace(/\\/g, '/'));
+    return [
+      ...pyDiags.filter((d) => d.file === filePath || d.file === normalized),
+      ...lspForFile,
+    ];
   }
 
-  return [];
+  return [...lspForFile];
 }
