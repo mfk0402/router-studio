@@ -26,17 +26,25 @@ This repo is **the open-source app itself**—Electron + React source, build scr
 
 Dark-theme **previews** of the in-app layout (Monaco editor, file tree, AI panel, model marketplace, terminal). Actual chrome may vary slightly by version and settings.
 
-**Main workspace** — explorer, split editor area, AI chat, bottom terminal:
+Image sources (same files as in-repo): [`docs/images/readme/`](docs/images/readme/).
 
-<img src="docs/images/readme/editor-workspace-dark.png" alt="Router Studio main workspace: sidebar, Monaco editor, AI panel, terminal" width="920">
+### Main workspace
 
-**Model picker** — searchable OpenRouter catalog with tier badges:
+Explorer, split editor area, AI chat, bottom terminal:
 
-<img src="docs/images/readme/model-picker-dark.png" alt="Router Studio model picker with searchable models and price tiers" width="720">
+![Router Studio — main workspace with sidebar, Monaco editor, AI panel, and terminal](https://raw.githubusercontent.com/mfk0402/router-studio/main/docs/images/readme/editor-workspace-dark.png)
 
-**AI panel** — streaming replies, attachments, model context:
+### Model picker
 
-<img src="docs/images/readme/ai-panel-dark.png" alt="Router Studio AI chat panel with streaming messages" width="720">
+Searchable OpenRouter catalog with tier badges:
+
+![Router Studio — model picker with searchable models and price tiers](https://raw.githubusercontent.com/mfk0402/router-studio/main/docs/images/readme/model-picker-dark.png)
+
+### AI panel
+
+Streaming replies, attachments, model context:
+
+![Router Studio — AI chat panel with streaming messages](https://raw.githubusercontent.com/mfk0402/router-studio/main/docs/images/readme/ai-panel-dark.png)
 
 ---
 
