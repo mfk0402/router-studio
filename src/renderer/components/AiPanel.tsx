@@ -24,6 +24,7 @@ import { discoverFreeModels, CATEGORY_META } from '../lib/modelFilters';
 import {
   resolveChatModelsForTurn,
   resolveVideoJobModelId,
+  hasVideoGenerationModels,
   isRouterStudioAuto,
   parseRouterStudioAuto,
   type AutoRouteInferenceInput,
@@ -86,6 +87,26 @@ function summarizeSnippet(s: string, maxLen: number): string {
   if (!t.length) return '—';
   if (t.length <= maxLen) return t;
   return `${t.slice(0, maxLen)}…`;
+}
+
+/** Poll delay for OpenRouter video job status (abortable). */
+function sleepAbortable(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      const e = new Error('Stopped.');
+      e.name = 'AbortError';
+      reject(e);
+      return;
+    }
+    const id = window.setTimeout(() => resolve(), ms);
+    const onAbort = () => {
+      window.clearTimeout(id);
+      const e = new Error('Stopped.');
+      e.name = 'AbortError';
+      reject(e);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function toolSurfaceLabel(mode: ProductMode): string {
@@ -333,6 +354,7 @@ function AiPanel() {
   // Ref-based cancel flag so auto-continue bails out even if React state is stale.
   const cancelAgentRef = useRef(false);
   const toolLoopAbortRef = useRef<AbortController | null>(null);
+  const videoJobAbortRef = useRef<AbortController | null>(null);
   /** Counts forced re-runs when the model emits [[TASK_COMPLETE]] without running tools for edit-like asks. */
   const prematureCompleteRetriesRef = useRef(0);
   /** While true, user prompts are queued instead of starting a parallel turn (includes agent [[CONTINUE]] chains). */
@@ -1213,8 +1235,22 @@ function AiPanel() {
         setShowSettings(true);
         return;
       }
+      if (!hasVideoGenerationModels(models)) {
+        toast.error(
+          'No video models',
+          'The catalog has no video generation models. Add your OpenRouter API key and wait for the model list to load.',
+        );
+        return;
+      }
       const model =
         req.model?.trim() || resolveVideoJobModelId(settings, models, freeModeEnabled);
+      if (!model.trim()) {
+        toast.error(
+          'Video model',
+          'Choose a video model in Settings → Models → Video generation, or pick one in the Generate video dialog.',
+        );
+        return;
+      }
       const rawPrompt = (req.prompt ?? '').trim();
       const frameParts = req.frame_images ?? [];
       const hasFirstFrame = frameParts.some((f) => f.frame_type === 'first_frame');
@@ -1270,11 +1306,13 @@ function AiPanel() {
         createdAt: Date.now(),
       });
       setBusy(true);
+      const ac = new AbortController();
+      videoJobAbortRef.current = ac;
       try {
         const submit = await window.api.openrouter.videoSubmit(apiKey, body);
         const jobStartedAt = Date.now();
         updateChatMessage(assistId, {
-          content: `Job \`${submit.id}\` — **rendering on OpenRouter** (video generation can take a few minutes).`,
+          content: `Job \`${submit.id}\` — **rendering on OpenRouter** (video generation can take several minutes).`,
           streaming: true,
           videoRenderProgress: {
             jobId: submit.id,
@@ -1284,11 +1322,16 @@ function AiPanel() {
           },
         });
         const pollMs = 2500;
-        const maxMs = 8 * 60 * 1000;
+        const maxMs = 15 * 60 * 1000;
         const started = jobStartedAt;
         const pollUrl = submit.polling_url;
         let pollIndex = 0;
         while (Date.now() - started < maxMs) {
+          if (ac.signal.aborted) {
+            const x = new Error('Stopped.');
+            x.name = 'AbortError';
+            throw x;
+          }
           const st = await window.api.openrouter.videoPoll(apiKey, pollUrl);
           pollIndex += 1;
           updateChatMessage(assistId, {
@@ -1319,19 +1362,31 @@ function AiPanel() {
           ) {
             throw new Error(st.error || `Video job ${st.status}`);
           }
-          await new Promise((r) => setTimeout(r, pollMs));
+          await sleepAbortable(pollMs, ac.signal);
         }
-        throw new Error('Video generation timed out. Try again or check the OpenRouter dashboard.');
+        throw new Error('Video generation timed out (15 min). Try again or check OpenRouter.');
       } catch (e) {
-        const msg = (e as Error).message;
-        updateChatMessage(assistId, {
-          content: '',
-          streaming: false,
-          error: msg,
-          videoRenderProgress: undefined,
-        });
-        toast.error('Video generation', msg);
+        const err = e as Error;
+        const stopped = err?.name === 'AbortError' || err?.message === 'Stopped.';
+        if (stopped) {
+          updateChatMessage(assistId, {
+            content: 'Video generation was stopped.',
+            streaming: false,
+            videoRenderProgress: undefined,
+          });
+          pushLog('info', 'Video generation stopped.');
+        } else {
+          const msg = err.message;
+          updateChatMessage(assistId, {
+            content: '',
+            streaming: false,
+            error: msg,
+            videoRenderProgress: undefined,
+          });
+          toast.error('Video generation', msg);
+        }
       } finally {
+        if (videoJobAbortRef.current === ac) videoJobAbortRef.current = null;
         setBusy(false);
       }
     },
@@ -1351,9 +1406,16 @@ function AiPanel() {
   );
 
   const openVideoGenerationModal = useCallback(() => {
+    if (!hasVideoGenerationModels(models)) {
+      toast.error(
+        'No video models',
+        'Wait for the model catalog to load, or add your OpenRouter API key in Settings.',
+      );
+      return;
+    }
     setVideoGenSeedPrompt(input.trim());
     setShowVideoGenModal(true);
-  }, [input]);
+  }, [input, models]);
 
   const runOpenRouterTtsJob = useCallback(
     async (payload: { text: string }) => {
@@ -1446,6 +1508,8 @@ function AiPanel() {
     cancelAgentRef.current = true;
     toolLoopAbortRef.current?.abort();
     toolLoopAbortRef.current = null;
+    videoJobAbortRef.current?.abort();
+    videoJobAbortRef.current = null;
     userMessageQueueRef.current = [];
     setQueuedCount(0);
     queueBlockingRef.current = false;
@@ -1457,6 +1521,10 @@ function AiPanel() {
     }
     pushLog('info', 'Agent loop stopped — queued prompts cleared.');
   }, [activeTaskId, persistTask, pushLog, taskCache]);
+
+  const abortVideoPoll = useCallback(() => {
+    videoJobAbortRef.current?.abort();
+  }, []);
 
   const startNewTask = useCallback(() => {
     cancelAgentRef.current = false;
@@ -1539,6 +1607,16 @@ function AiPanel() {
               return;
             case '[[OPENROUTER_VIDEO]]':
               if (openRouterVideo) {
+                if (!hasVideoGenerationModels(models)) {
+                  addChatMessage({
+                    id: crypto.randomUUID(),
+                    role: 'assistant',
+                    content:
+                      '**No video models are available** in the catalog yet. Add your OpenRouter API key in Settings and wait for models to finish loading, then try **`/video`** again.',
+                    createdAt: Date.now(),
+                  });
+                  return;
+                }
                 const model = resolveVideoJobModelId(settings, models, freeModeEnabled);
                 const ar =
                   openRouterVideo.aspect_ratio?.trim() ||
@@ -2149,6 +2227,7 @@ function AiPanel() {
                 onEdit={handleChatEdit}
                 onDelete={handleChatDeleteFrom}
                 onFork={handleChatFork}
+                onCancelVideoPoll={abortVideoPoll}
               />
             ))}
           </>

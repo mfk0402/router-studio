@@ -14,6 +14,8 @@ interface ChatMessageProps {
   onEdit?: (messageId: string, newContent: string) => void;
   onDelete?: (messageId: string) => void;
   onFork?: (messageId: string) => void;
+  /** Stops the OpenRouter video polling loop (same as Agent stop). */
+  onCancelVideoPoll?: () => void;
 }
 
 function formatVideoElapsed(ms: number): string {
@@ -145,8 +147,10 @@ function GeneratedVideoEmbed({ src, idx }: { src: string; idx: number }) {
 
 function VideoJobProgressPanel({
   progress,
+  onCancel,
 }: {
   progress: NonNullable<ChatMsg['videoRenderProgress']>;
+  onCancel?: () => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -168,27 +172,44 @@ function VideoJobProgressPanel({
         <span className="tabular-nums text-fg-muted">{elapsed}</span>
       </div>
       <div className="relative h-1.5 overflow-hidden rounded-full bg-bg-deep/80">
-        <div className="video-job-progress-bar absolute inset-y-0 w-[38%] rounded-full bg-gradient-to-r from-accent to-cyan opacity-90 shadow-[0_0_12px_rgb(99_102_255_/_0.35)]" />
+        <div className="h-full w-full animate-pulse rounded-full bg-gradient-to-r from-accent/45 via-cyan/55 to-accent/45 shadow-[0_0_12px_rgb(99_102_255_/_0.25)]" />
       </div>
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-fg-muted">
-        <span className="inline-flex gap-1" aria-hidden>
-          <span className="video-job-dot h-1.5 w-1.5 rounded-full bg-accent" />
-          <span className="video-job-dot video-job-dot-delay-1 h-1.5 w-1.5 rounded-full bg-accent" />
-          <span className="video-job-dot video-job-dot-delay-2 h-1.5 w-1.5 rounded-full bg-accent" />
-        </span>
-        <span>
-          {humanizeVideoPollStatus(progress.apiStatus)}
-          {progress.pollIndex > 0 ? ` · check ${progress.pollIndex}` : ''}
-        </span>
-        <span className="font-mono text-[10px] text-fg-subtle">
-          id <span className="text-fg-muted">{progress.jobId.slice(0, 8)}…</span>
-        </span>
+      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-fg-muted">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="inline-flex gap-1" aria-hidden>
+            <span className="video-job-dot h-1.5 w-1.5 rounded-full bg-accent" />
+            <span className="video-job-dot video-job-dot-delay-1 h-1.5 w-1.5 rounded-full bg-accent" />
+            <span className="video-job-dot video-job-dot-delay-2 h-1.5 w-1.5 rounded-full bg-accent" />
+          </span>
+          <span>
+            {humanizeVideoPollStatus(progress.apiStatus)}
+            {progress.pollIndex > 0 ? ` · check ${progress.pollIndex}` : ''}
+          </span>
+          <span className="font-mono text-[10px] text-fg-subtle">
+            id <span className="text-fg-muted">{progress.jobId.slice(0, 8)}…</span>
+          </span>
+        </div>
+        {onCancel ?
+          <button
+            type="button"
+            className="rounded-md border border-border-soft px-2 py-0.5 text-[11px] text-fg-muted hover:bg-bg-hover hover:text-fg"
+            onClick={onCancel}
+          >
+            Stop polling
+          </button>
+        : null}
       </div>
     </div>
   );
 }
 
-function ChatMessageComponent({ msg, onEdit, onDelete, onFork }: ChatMessageProps) {
+function ChatMessageComponent({
+  msg,
+  onEdit,
+  onDelete,
+  onFork,
+  onCancelVideoPoll,
+}: ChatMessageProps) {
   if (msg.role === 'system') return null;
 
   const [isEditing, setIsEditing] = useState(false);
@@ -348,7 +369,10 @@ function ChatMessageComponent({ msg, onEdit, onDelete, onFork }: ChatMessageProp
             </ul>
           ) : null}
           {!isUser && msg.videoRenderProgress && !msg.error ? (
-            <VideoJobProgressPanel progress={msg.videoRenderProgress} />
+            <VideoJobProgressPanel
+              progress={msg.videoRenderProgress}
+              onCancel={onCancelVideoPoll}
+            />
           ) : null}
           {!isUser && msg.generatedVideoUrls && msg.generatedVideoUrls.length > 0 ? (
             <div className="mb-3 flex flex-col gap-3">

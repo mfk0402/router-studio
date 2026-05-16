@@ -306,7 +306,7 @@ export function resolveVideoModelId(
 ): string {
   const preferFree = opts?.preferFree ?? false;
   let pool = modelsInCategory(models, 'video-gen');
-  if (pool.length === 0) return defaultModel;
+  if (pool.length === 0) return '';
 
   if (preferFree) {
     const freeOnly = pool.filter((m) => m.isFree);
@@ -330,6 +330,11 @@ export function resolveVideoModelId(
 
 function isVideoGenerationModel(m: NormalizedModel): boolean {
   return m.categories.includes('video-gen') || m.outputModalities.includes('video');
+}
+
+/** True when the catalog lists at least one OpenRouter video generation model (after `/videos/models` merge). */
+export function hasVideoGenerationModels(models: NormalizedModel[]): boolean {
+  return models.some((m) => isVideoGenerationModel(m));
 }
 
 /**

@@ -12,6 +12,34 @@ const API_BASE = 'https://openrouter.ai/api/v1';
 const APP_REFERER = 'https://router-studio.local';
 const APP_TITLE = 'Router Studio';
 
+/** Hosts OpenRouter uses for async job status (HTTPS only; prevents SSRF + exfil of bearer tokens). */
+const OPENROUTER_POLL_HOSTS = new Set([
+  'openrouter.ai',
+  'api.openrouter.ai',
+  'www.openrouter.ai',
+]);
+
+/**
+ * Validates polling URLs returned by OpenRouter `POST /videos` before repeating them with the user's API key.
+ */
+export function assertOpenRouterVideoPollUrl(pollingUrl: string): string {
+  const raw = (pollingUrl ?? '').trim();
+  if (!raw) throw new Error('Video poll: missing polling URL.');
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new Error('Video poll: invalid polling URL.');
+  }
+  if (u.protocol !== 'https:') {
+    throw new Error('Video poll: only HTTPS URLs are allowed.');
+  }
+  if (!OPENROUTER_POLL_HOSTS.has(u.hostname)) {
+    throw new Error(`Video poll: unexpected host "${u.hostname}".`);
+  }
+  return u.toString();
+}
+
 /** Row shape from GET /api/v1/videos/models (subset). */
 export interface OpenRouterVideoCatalogRow {
   id: string;
@@ -99,7 +127,8 @@ export async function submitVideoJob(
 }
 
 export async function pollVideoJob(apiKey: string, pollingUrl: string): Promise<VideoPollResult> {
-  const res = await fetch(pollingUrl, {
+  const safeUrl = assertOpenRouterVideoPollUrl(pollingUrl);
+  const res = await fetch(safeUrl, {
     method: 'GET',
     headers: authHeaders(apiKey),
   });

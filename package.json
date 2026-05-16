@@ -48,10 +48,11 @@
   "scripts": {
     "dev": "electron-vite dev",
     "verify": "npm run typecheck && electron-vite build",
-    "build": "electron-vite build && electron-builder --dir",
-    "build:win": "electron-vite build && electron-builder --win",
-    "build:mac": "electron-vite build && electron-builder --mac",
-    "build:linux": "electron-vite build && electron-builder --linux",
+    "build:icons": "node scripts/sync-app-icons.mjs",
+    "build": "npm run build:icons && electron-vite build && electron-builder --dir",
+    "build:win": "npm run build:icons && electron-vite build && electron-builder --win",
+    "build:mac": "npm run build:icons && electron-vite build && electron-builder --mac",
+    "build:linux": "npm run build:icons && electron-vite build && electron-builder --linux",
     "assets:transparent-logos": "node scripts/make-logo-transparent.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test:unit": "node --experimental-strip-types --test src/main/security/pathValidation.test.ts src/main/security/promptInjectionGuard.test.ts src/main/security/sensitiveFileGuard.test.ts src/main/tools/shell/runShell.test.ts src/renderer/lib/agentLoop.test.ts src/renderer/lib/fileUtils.test.ts src/renderer/lib/toolPromptGuide.test.ts",
@@ -75,9 +76,9 @@
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0",
+    "typescript": "^5.5.3",
     "vscode-jsonrpc": "^8.2.1",
     "vscode-languageserver-protocol": "^3.17.5",
-    "typescript": "^5.5.3",
     "zustand": "^4.5.4"
   },
   "devDependencies": {
@@ -91,6 +92,7 @@
     "electron-builder": "^24.13.3",
     "electron-vite": "^2.3.0",
     "jpeg-js": "^0.4.4",
+    "png-to-ico": "^3.0.1",
     "pngjs": "^7.0.0",
     "postcss": "^8.4.39",
     "tailwindcss": "^3.4.6",
@@ -119,7 +121,7 @@
         "nsis",
         "zip"
       ],
-      "icon": "resources/icon.png",
+      "icon": "resources/icon.ico",
       "sign": null,
       "signDlls": false,
       "signAndEditExecutable": false

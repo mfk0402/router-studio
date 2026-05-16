@@ -41,7 +41,7 @@ The repo ships a **Release** workflow (`.github/workflows/release.yml`). When yo
    ```
 
 3. Watch **Actions → Release**. When finished, installers appear under the new Release.
-4. **Local builds:** `npm run build:win` / `build:mac` / `build:linux` write to **`release/`**. Close any running Router Studio instance first—Windows often locks `release/win-unpacked/*.asar`.
+4. **Local builds:** `npm run build:win` / `build:mac` / `build:linux` write to **`release/`**. Packaging runs **`npm run build:icons`** first (copies `src/renderer/assets/logo-icon.png` → `resources/icon.png` and **`resources/icon.ico`** for Windows). Close any running Router Studio instance first—Windows often locks `release/win-unpacked/*.asar`.
 
 **Signing (optional)** — CI supports the same secrets as `package-desktop` in [`ci.yml`](.github/workflows/ci.yml): **`WIN_*`** for Windows code signing (PFX) and **`CSC_*`** for macOS. Without secrets, installers are built **unsigned**.
 

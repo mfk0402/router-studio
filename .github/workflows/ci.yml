@@ -50,12 +50,20 @@ jobs:
       - run: npm ci
 
       - name: electron-builder --dir (current platform)
-        run: npm run build
+        shell: bash
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # Missing secrets become empty strings and confuse electron-builder signing — unset entirely.
+          if [ -z "${CSC_LINK:-}" ]; then unset CSC_LINK; fi
+          if [ -z "${CSC_KEY_PASSWORD:-}" ]; then unset CSC_KEY_PASSWORD; fi
+          if [ -z "${WIN_CSC_LINK:-}" ]; then unset WIN_CSC_LINK; fi
+          if [ -z "${WIN_CSC_KEY_PASSWORD:-}" ]; then unset WIN_CSC_KEY_PASSWORD; fi
+          npm run build
 
       - name: Upload electron-builder output (unpacked dir)
         uses: actions/upload-artifact@v4
